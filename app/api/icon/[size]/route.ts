@@ -1,13 +1,15 @@
 import { ImageResponse } from 'next/og';
+import fs from 'fs';
+import path from 'path';
 
-export const runtime = 'edge';
-
-export async function GET(req: Request, { params }: { params: Promise<{ size: string }> }) {
+export async function GET(_req: Request, { params }: { params: Promise<{ size: string }> }) {
   const { size: sizeStr } = await params;
   const size = parseInt(sizeStr) || 192;
+  const padding = size * 0.1;
 
-  const logoUrl = new URL('/vidrow-logo.png', req.url).toString();
-  const padding = size * 0.12;
+  const logoPath = path.join(process.cwd(), 'public', 'vidrow-logo.png');
+  const logoData = fs.readFileSync(logoPath);
+  const base64 = `data:image/png;base64,${logoData.toString('base64')}`;
 
   return new ImageResponse(
     (
@@ -19,17 +21,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ size: st
           alignItems: 'center',
           justifyContent: 'center',
           background: '#ffffff',
-          borderRadius: size * 0.2,
           padding,
         }}
       >
         <img
-          src={logoUrl}
-          style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'contain',
-          }}
+          src={base64}
+          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
         />
       </div>
     ),
