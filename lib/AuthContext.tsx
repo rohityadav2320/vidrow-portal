@@ -106,7 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         id: authData.user.id,
         email,
         full_name: fullName,
-        role: 'creator',
+        role: 'admin',
         status: 'active',
       });
 

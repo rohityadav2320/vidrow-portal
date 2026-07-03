@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 import Link from 'next/link';
-import { LogOut, Home, FileText, Zap, DollarSign, LayoutDashboard, Edit3 } from 'lucide-react';
+import { LogOut, Home, FileText, LayoutDashboard, Edit3, Users } from 'lucide-react';
 
 function NavLink({ href, icon, label, highlight }: { href: string; icon: React.ReactNode; label: string; highlight?: boolean }) {
   const pathname = usePathname();
@@ -39,7 +39,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       router.push('/auth/login');
     }
     if (!isLoading && isAuthenticated && user?.role !== 'admin') {
-      router.push('/dashboard');
+      router.push('/auth/login');
     }
   }, [isLoading, isAuthenticated, user, router]);
 
@@ -52,6 +52,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   if (!isAuthenticated || user?.role !== 'admin') return null;
+
+
 
   const handleSignOut = async () => {
     try {
@@ -79,6 +81,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <NavLink href="/scripts" icon={<FileText className="w-4 h-4" />} label="Scripts" />
           <NavLink href="/editors" icon={<Edit3 className="w-4 h-4" />} label="Editors" />
 
+          <div className="pt-4 pb-1 px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Admin</div>
+          <NavLink href="/team" icon={<Users className="w-4 h-4" />} label="Team" />
         </nav>
 
         <div className="p-3 border-t border-gray-100">

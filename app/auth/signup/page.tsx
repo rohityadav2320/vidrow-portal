@@ -5,24 +5,30 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/AuthContext';
 import Link from 'next/link';
 
-export default function LoginPage() {
+export default function SignupPage() {
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
-  const { signIn } = useAuth();
+  const { signUp } = useAuth();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-    setIsLoading(true);
 
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+
+    setIsLoading(true);
     try {
-      await signIn(email, password);
+      await signUp(email, password, fullName);
       router.replace('/dashboard');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed. Check your email and password.');
+      setError(err instanceof Error ? err.message : 'Sign up failed. Try again.');
     } finally {
       setIsLoading(false);
     }
@@ -33,7 +39,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="bg-white rounded-lg shadow-lg p-8">
           <h1 className="text-3xl font-bold text-center text-gray-900 mb-2">Vidrow</h1>
-          <p className="text-center text-gray-600 mb-8">Video Production Portal</p>
+          <p className="text-center text-gray-600 mb-8">Create your team account</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
@@ -43,6 +49,21 @@ export default function LoginPage() {
             )}
 
             <div>
+              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+                Full Name
+              </label>
+              <input
+                id="name"
+                type="text"
+                value={fullName}
+                onChange={e => setFullName(e.target.value)}
+                required
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Your name"
+              />
+            </div>
+
+            <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
                 Email
               </label>
@@ -50,7 +71,7 @@ export default function LoginPage() {
                 id="email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={e => setEmail(e.target.value)}
                 required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="your@email.com"
@@ -65,10 +86,11 @@ export default function LoginPage() {
                 id="password"
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={e => setPassword(e.target.value)}
                 required
+                minLength={6}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="••••••••"
+                placeholder="Min 6 characters"
               />
             </div>
 
@@ -77,14 +99,14 @@ export default function LoginPage() {
               disabled={isLoading}
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold py-2 px-4 rounded-lg transition"
             >
-              {isLoading ? 'Signing in...' : 'Sign In'}
+              {isLoading ? 'Creating account...' : 'Create Account'}
             </button>
           </form>
 
           <div className="mt-6 text-center text-sm text-gray-500">
-            New to Vidrow?{' '}
-            <Link href="/auth/signup" className="text-blue-600 hover:underline font-medium">
-              Create account
+            Already have an account?{' '}
+            <Link href="/auth/login" className="text-blue-600 hover:underline font-medium">
+              Sign in
             </Link>
           </div>
         </div>
