@@ -23,7 +23,7 @@ export const metadata: Metadata = {
     title: "Vidrow",
   },
   icons: {
-    apple: "/apple-touch-icon.png",
+    apple: "/api/icon/180",
   },
 };
 
