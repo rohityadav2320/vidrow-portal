@@ -48,7 +48,7 @@ export default function ScriptsPage() {
   const [filterClient, setFilterClient] = useState('All');
   const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editData, setEditData] = useState({ title: '', pod: '', client: '' });
+  const [editData, setEditData] = useState({ title: '', pod: '', client: '', description: '' });
   const [editSaving, setEditSaving] = useState(false);
   const [editors, setEditors] = useState<{ id: string; name: string }[]>([]);
   const [revisionScript, setRevisionScript] = useState<Script | null>(null);
@@ -162,6 +162,7 @@ export default function ScriptsPage() {
       title: script.title,
       pod: script.pod || '',
       client: script.client || '',
+      description: (script as any).description || '',
     });
   }
 
@@ -175,6 +176,7 @@ export default function ScriptsPage() {
           title: editData.title.trim(),
           pod: editData.pod,
           client: editData.client || null,
+          description: editData.description.trim() || null,
         })
         .eq('id', id)
         .select()
@@ -563,6 +565,12 @@ export default function ScriptsPage() {
                           onChange={e => setEditData({ ...editData, title: e.target.value })}
                           onKeyDown={e => { if (e.key === 'Enter') handleUpdate(script.id); if (e.key === 'Escape') setEditingId(null); }}
                           className="w-full px-2.5 py-1.5 border border-blue-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"
+                        />
+                        <input
+                          value={editData.description}
+                          onChange={e => setEditData({ ...editData, description: e.target.value })}
+                          placeholder="Description (optional)"
+                          className="w-full mt-1 px-2.5 py-1 border border-blue-200 rounded-lg text-xs text-gray-600 bg-white focus:ring-2 focus:ring-blue-400 placeholder-gray-300"
                         />
                       </td>
                       <td className="px-3 py-2">
