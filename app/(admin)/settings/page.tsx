@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Plus, Trash2, Layers, Building2 } from 'lucide-react';
+import { Plus, Trash2, Layers, Building2, Pencil, Check, X } from 'lucide-react';
 
 interface Pod {
   id: string;
@@ -44,6 +44,12 @@ export default function SettingsPage() {
   const [newPodName, setNewPodName] = useState('');
   const [newPodColor, setNewPodColor] = useState('blue');
   const [addingPod, setAddingPod] = useState(false);
+
+  // Pod inline edit
+  const [editingPodId, setEditingPodId] = useState<string | null>(null);
+  const [editPodName, setEditPodName] = useState('');
+  const [editPodColor, setEditPodColor] = useState('blue');
+  const [savingPod, setSavingPod] = useState(false);
 
   // Client form
   const [newClientName, setNewClientName] = useState('');
@@ -96,6 +102,39 @@ export default function SettingsPage() {
     if (!confirm(`Delete pod "${pod.name}"?`)) return;
     await supabase.from('pods').delete().eq('id', pod.id);
     setPods(prev => prev.filter(p => p.id !== pod.id));
+  }
+
+  function startEditPod(pod: Pod) {
+    setEditingPodId(pod.id);
+    setEditPodName(pod.name);
+    setEditPodColor(pod.color);
+  }
+
+  async function handleSavePod(pod: Pod) {
+    const name = editPodName.trim();
+    if (!name) return;
+    if (name === pod.name && editPodColor === pod.color) { setEditingPodId(null); return; }
+    setSavingPod(true);
+    try {
+      const { error } = await supabase
+        .from('pods').update({ name, color: editPodColor }).eq('id', pod.id);
+      if (error) {
+        if (error.code === '23505') alert(`Pod "${name}" already exists.`);
+        else throw error;
+        return;
+      }
+      // Also update pod name on all scripts that used the old name
+      if (name !== pod.name) {
+        await supabase.from('scripts').update({ pod: name }).eq('pod', pod.name);
+        await supabase.from('editors').update({ pod: name }).eq('pod', pod.name);
+      }
+      setPods(prev => prev.map(p => p.id === pod.id ? { ...p, name, color: editPodColor } : p));
+      setEditingPodId(null);
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setSavingPod(false);
+    }
   }
 
   async function handleAddClient(e: React.FormEvent) {
@@ -161,6 +200,46 @@ export default function SettingsPage() {
             <div className="divide-y divide-gray-100">
               {pods.map(pod => {
                 const colors = POD_COLOR_CLASSES[pod.color] || POD_COLOR_CLASSES.blue;
+                const isEditing = editingPodId === pod.id;
+
+                if (isEditing) {
+                  return (
+                    <div key={pod.id} className="flex items-center gap-3 px-4 py-3 bg-blue-50/60">
+                      <input
+                        autoFocus
+                        value={editPodName}
+                        onChange={e => setEditPodName(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') handleSavePod(pod); if (e.key === 'Escape') setEditingPodId(null); }}
+                        className="flex-1 px-2.5 py-1.5 border border-blue-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"
+                      />
+                      <div className="flex gap-1.5">
+                        {COLOR_OPTIONS.map(c => (
+                          <button
+                            key={c.value}
+                            type="button"
+                            onClick={() => setEditPodColor(c.value)}
+                            className={`w-5 h-5 rounded-full ${c.bg} transition ring-offset-1 ${editPodColor === c.value ? 'ring-2 ring-gray-800 scale-110' : 'hover:scale-105'}`}
+                            title={c.label}
+                          />
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => handleSavePod(pod)}
+                        disabled={savingPod || !editPodName.trim()}
+                        className="p-1.5 rounded bg-green-500 hover:bg-green-600 disabled:opacity-40 text-white transition"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setEditingPodId(null)}
+                        className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                }
+
                 return (
                   <div key={pod.id} className="flex items-center gap-3 px-5 py-3.5">
                     <div className={`w-3 h-3 rounded-full flex-shrink-0 ${colors.dot}`} />
@@ -168,6 +247,13 @@ export default function SettingsPage() {
                       {pod.name}
                     </span>
                     <span className="flex-1 text-xs text-gray-400 capitalize">{pod.color}</span>
+                    <button
+                      onClick={() => startEditPod(pod)}
+                      className="text-gray-300 hover:text-blue-500 transition"
+                      title="Edit pod"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
                     <button
                       onClick={() => handleDeletePod(pod)}
                       className="text-gray-300 hover:text-red-500 transition"
