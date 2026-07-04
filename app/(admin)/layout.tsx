@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 import Link from 'next/link';
-import { LogOut, Home, FileText, LayoutDashboard, Edit3, Users } from 'lucide-react';
+import { LogOut, Home, FileText, LayoutDashboard, Edit3, Users, Settings } from 'lucide-react';
 
 function NavLink({ href, icon, label, highlight }: { href: string; icon: React.ReactNode; label: string; highlight?: boolean }) {
   const pathname = usePathname();
@@ -83,6 +83,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
           <div className="pt-4 pb-1 px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Admin</div>
           <NavLink href="/team" icon={<Users className="w-4 h-4" />} label="Team" />
+          <NavLink href="/settings" icon={<Settings className="w-4 h-4" />} label="Settings" />
         </nav>
 
         <div className="p-3 border-t border-gray-100">

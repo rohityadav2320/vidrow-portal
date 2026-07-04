@@ -5,11 +5,16 @@ import { supabase } from '@/lib/supabase';
 import type { Script, Client } from '@/lib/types';
 import { Plus, Trash2, Building2, AlertTriangle, Clock, Search, X, Download, Pencil, Check, RotateCcw } from 'lucide-react';
 
-const POD_COLORS: Record<string, string> = {
-  'Pod 1': 'bg-blue-100 text-blue-800',
-  'Pod 2': 'bg-purple-100 text-purple-800',
-  'Pod 3': 'bg-orange-100 text-orange-800',
+const POD_COLOR_MAP: Record<string, string> = {
+  blue:   'bg-blue-100 text-blue-800',
+  purple: 'bg-purple-100 text-purple-800',
+  orange: 'bg-orange-100 text-orange-800',
+  teal:   'bg-teal-100 text-teal-800',
+  pink:   'bg-pink-100 text-pink-800',
+  green:  'bg-green-100 text-green-800',
 };
+
+interface PodOption { id: string; name: string; color: string; }
 
 function getDeadlineInfo(deadline?: string, isDone?: boolean) {
   if (!deadline) return null;
@@ -31,9 +36,10 @@ export default function ScriptsPage() {
   const [scripts, setScripts] = useState<Script[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [editorStatuses, setEditorStatuses] = useState<Record<string, { editor_name: string; status: string; completed_at?: string; deadline?: string; is_revision?: boolean }>>({});
+  const [pods, setPods] = useState<PodOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({ title: '', pod: '', topic_category: '', client: '' });
+  const [formData, setFormData] = useState({ title: '', pod: '', description: '', client: '' });
   const [newClientName, setNewClientName] = useState('');
   const [addingClient, setAddingClient] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -42,7 +48,7 @@ export default function ScriptsPage() {
   const [filterClient, setFilterClient] = useState('All');
   const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editData, setEditData] = useState({ title: '', pod: '', topic_category: '', client: '' });
+  const [editData, setEditData] = useState({ title: '', pod: '', client: '' });
   const [editSaving, setEditSaving] = useState(false);
   const [editors, setEditors] = useState<{ id: string; name: string }[]>([]);
   const [revisionScript, setRevisionScript] = useState<Script | null>(null);
@@ -54,11 +60,12 @@ export default function ScriptsPage() {
 
   async function loadScripts() {
     setIsLoading(true);
-    const [scriptsRes, assignmentsRes, clientsRes, editorsRes] = await Promise.all([
+    const [scriptsRes, assignmentsRes, clientsRes, editorsRes, podsRes] = await Promise.all([
       supabase.from('scripts').select('*').order('created_at', { ascending: false }),
       supabase.from('editor_assignments').select('*'),
       supabase.from('clients').select('*').order('name'),
       supabase.from('editors').select('id, name').eq('status', 'active').order('name'),
+      supabase.from('pods').select('*').order('created_at'),
     ]);
 
     // Active assignments always beat done ones so a revision re-opens the script
@@ -75,6 +82,7 @@ export default function ScriptsPage() {
     setEditorStatuses(statusMap);
     setClients(clientsRes.data || []);
     setEditors(editorsRes.data || []);
+    setPods(podsRes.data || []);
     setIsLoading(false);
   }
 
@@ -118,7 +126,7 @@ export default function ScriptsPage() {
         .insert({
           title: formData.title.trim(),
           pod: formData.pod,
-          topic_category: formData.topic_category || null,
+          description: formData.description || null,
           client: formData.client || null,
           status: 'pending',
         })
@@ -130,7 +138,7 @@ export default function ScriptsPage() {
         return;
       }
       setScripts([data, ...scripts]);
-      setFormData({ title: '', pod: '', topic_category: '', client: '' });
+      setFormData({ title: '', pod: '', description: '', client: '' });
       setNewClientName('');
       setShowForm(false);
     } catch (err: any) {
@@ -151,7 +159,6 @@ export default function ScriptsPage() {
     setEditData({
       title: script.title,
       pod: script.pod || '',
-      topic_category: script.topic_category || '',
       client: script.client || '',
     });
   }
@@ -165,7 +172,6 @@ export default function ScriptsPage() {
         .update({
           title: editData.title.trim(),
           pod: editData.pod,
-          topic_category: editData.topic_category || null,
           client: editData.client || null,
         })
         .eq('id', id)
@@ -240,7 +246,7 @@ export default function ScriptsPage() {
 
   function exportCSV() {
     const rows = [
-      ['Title', 'Client', 'Pod', 'Category', 'Status', 'Editor', 'Deadline', 'Completed On', 'Created On'],
+      ['Title', 'Client', 'Pod', 'Description', 'Status', 'Editor', 'Deadline', 'Completed On', 'Created On'],
       ...filtered.map(s => {
         const realStatus = getRealStatus(s.id);
         const a = editorStatuses[s.id];
@@ -252,7 +258,7 @@ export default function ScriptsPage() {
           s.title,
           s.client || '',
           s.pod || '',
-          s.topic_category || '',
+          s.description || '',
           statusLabel,
           a?.editor_name || '',
           a?.deadline || '',
@@ -335,7 +341,7 @@ export default function ScriptsPage() {
         <div className="bg-white rounded-xl border border-blue-200 shadow-sm p-5 mb-6">
           <h2 className="font-bold text-gray-900 mb-4">New Script</h2>
           <form onSubmit={handleCreate}>
-            {/* Row 1: Title + Pod + Category */}
+            {/* Row 1: Title + Pod */}
             <div className="flex items-end gap-3 mb-3">
               <div className="flex-1">
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Title *</label>
@@ -349,7 +355,7 @@ export default function ScriptsPage() {
                   placeholder="Script title..."
                 />
               </div>
-              <div className="w-36">
+              <div className="w-40">
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Pod *</label>
                 <select
                   required
@@ -357,22 +363,21 @@ export default function ScriptsPage() {
                   onChange={e => setFormData({ ...formData, pod: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">Select...</option>
-                  <option value="Pod 1">Pod 1</option>
-                  <option value="Pod 2">Pod 2</option>
-                  <option value="Pod 3">Pod 3</option>
+                  <option value="">Select pod...</option>
+                  {pods.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
                 </select>
               </div>
-              <div className="w-40">
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Category</label>
-                <input
-                  type="text"
-                  value={formData.topic_category}
-                  onChange={e => setFormData({ ...formData, topic_category: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"
-                  placeholder="e.g. Tutorial"
-                />
-              </div>
+            </div>
+            {/* Description */}
+            <div className="mb-3">
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Description <span className="font-normal text-gray-400">(optional)</span></label>
+              <textarea
+                value={formData.description}
+                onChange={e => setFormData({ ...formData, description: e.target.value })}
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 resize-none"
+                placeholder="Brief notes about this script..."
+              />
             </div>
 
             {/* Row 2: Client */}
@@ -436,19 +441,23 @@ export default function ScriptsPage() {
         {/* Pod */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-gray-400 font-medium w-10">Pod</span>
-          {['All', 'Pod 1', 'Pod 2', 'Pod 3'].map(pod => (
+          <button
+            onClick={() => setFilterPod('All')}
+            className={`text-xs font-semibold px-3 py-1.5 rounded-full transition ${filterPod === 'All' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+          >
+            All
+          </button>
+          {pods.map(pod => (
             <button
-              key={pod}
-              onClick={() => setFilterPod(pod)}
+              key={pod.id}
+              onClick={() => setFilterPod(pod.name)}
               className={`text-xs font-semibold px-3 py-1.5 rounded-full transition ${
-                filterPod === pod
-                  ? pod === 'All' ? 'bg-gray-900 text-white' :
-                    pod === 'Pod 1' ? 'bg-blue-600 text-white' :
-                    pod === 'Pod 2' ? 'bg-purple-600 text-white' : 'bg-orange-500 text-white'
+                filterPod === pod.name
+                  ? `text-white ${pod.color === 'blue' ? 'bg-blue-600' : pod.color === 'purple' ? 'bg-purple-600' : pod.color === 'orange' ? 'bg-orange-500' : pod.color === 'teal' ? 'bg-teal-600' : pod.color === 'pink' ? 'bg-pink-500' : 'bg-green-600'}`
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
-              {pod} {pod !== 'All' && `(${scripts.filter(s => s.pod === pod).length})`}
+              {pod.name} ({scripts.filter(s => s.pod === pod.name).length})
             </button>
           ))}
         </div>
@@ -571,20 +580,10 @@ export default function ScriptsPage() {
                           className="w-full px-2.5 py-1.5 border border-blue-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"
                         >
                           <option value="">No pod</option>
-                          <option value="Pod 1">Pod 1</option>
-                          <option value="Pod 2">Pod 2</option>
-                          <option value="Pod 3">Pod 3</option>
+                          {pods.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
                         </select>
                       </td>
-                      <td className="px-3 py-2">
-                        <input
-                          value={editData.topic_category}
-                          onChange={e => setEditData({ ...editData, topic_category: e.target.value })}
-                          placeholder="Category"
-                          className="w-full px-2.5 py-1.5 border border-blue-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"
-                        />
-                      </td>
-                      <td className="px-3 py-2 text-xs text-gray-400" colSpan={2}>
+                      <td className="px-3 py-2 text-xs text-gray-400" colSpan={3}>
                         Press Enter to save · Esc to cancel
                       </td>
                       <td className="px-3 py-2 text-right">
@@ -633,7 +632,7 @@ export default function ScriptsPage() {
                     </td>
                     <td className="px-5 py-3.5">
                       {script.pod ? (
-                        <span className={`text-xs font-semibold px-2 py-1 rounded-full ${POD_COLORS[script.pod]}`}>
+                        <span className={`text-xs font-semibold px-2 py-1 rounded-full ${POD_COLOR_MAP[pods.find(p => p.name === script.pod)?.color || 'blue'] || 'bg-gray-100 text-gray-700'}`}>
                           {script.pod}
                         </span>
                       ) : <span className="text-gray-300 text-xs">—</span>}

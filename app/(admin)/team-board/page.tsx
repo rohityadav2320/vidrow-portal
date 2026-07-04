@@ -3,7 +3,14 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Script, Editor } from '@/lib/types';
-import { POD_COLORS } from '@/lib/types';
+const POD_COLOR_MAP: Record<string, string> = {
+  blue:   'bg-blue-100 text-blue-800',
+  purple: 'bg-purple-100 text-purple-800',
+  orange: 'bg-orange-100 text-orange-800',
+  teal:   'bg-teal-100 text-teal-800',
+  pink:   'bg-pink-100 text-pink-800',
+  green:  'bg-green-100 text-green-800',
+};
 import { RefreshCw, Plus, X, CheckCircle, AlertTriangle, Clock } from 'lucide-react';
 
 interface EditorAssignment {
@@ -38,6 +45,7 @@ export default function TeamBoardPage() {
   const [editors, setEditors] = useState<Editor[]>([]);
   const [assignments, setAssignments] = useState<EditorAssignment[]>([]);
   const [scripts, setScripts] = useState<Script[]>([]);
+  const [podColorMap, setPodColorMap] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -51,11 +59,15 @@ export default function TeamBoardPage() {
   async function loadData() {
     setIsLoading(true);
     try {
-      const [editorsRes, assignmentsRes, scriptsRes] = await Promise.all([
+      const [editorsRes, assignmentsRes, scriptsRes, podsRes] = await Promise.all([
         supabase.from('editors').select('*').eq('status', 'active').order('name'),
         supabase.from('editor_assignments').select('*').order('created_at', { ascending: false }),
         supabase.from('scripts').select('*').order('created_at', { ascending: false }),
+        supabase.from('pods').select('name, color').order('created_at'),
       ]);
+      const colorMap: Record<string, string> = {};
+      (podsRes.data || []).forEach((p: any) => { colorMap[p.name] = POD_COLOR_MAP[p.color] || 'bg-gray-100 text-gray-700'; });
+      setPodColorMap(colorMap);
 
       const scriptsMap: Record<string, Script> = {};
       (scriptsRes.data || []).forEach((s: Script) => { scriptsMap[s.id] = s; });
@@ -160,6 +172,7 @@ export default function TeamBoardPage() {
               editor={editor}
               assignments={byEditor[editor.name] || []}
               onUpdate={loadData}
+              podColorMap={podColorMap}
             />
           ))}
         </div>
@@ -179,10 +192,11 @@ export default function TeamBoardPage() {
   );
 }
 
-function EditorCard({ editor, assignments, onUpdate }: {
+function EditorCard({ editor, assignments, onUpdate, podColorMap }: {
   editor: Editor & { editor_type?: string };
   assignments: EditorAssignment[];
   onUpdate: () => void;
+  podColorMap: Record<string, string>;
 }) {
   const active = assignments.filter(a => a.status !== 'done');
   const done = assignments.filter(a => a.status === 'done');
@@ -273,7 +287,7 @@ function EditorCard({ editor, assignments, onUpdate }: {
                     </div>
                     <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                       {a.script?.pod && (
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${POD_COLORS[a.script.pod]}`}>
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${podColorMap[a.script.pod] || 'bg-gray-100 text-gray-700'}`}>
                           {a.script.pod}
                         </span>
                       )}
