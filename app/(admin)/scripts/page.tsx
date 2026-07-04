@@ -150,11 +150,9 @@ export default function ScriptsPage() {
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this script? Its assignment history will also be removed.')) return;
-    // Delete from all tables that reference script_id
-    await supabase.from('editor_assignments').delete().eq('script_id', id);
-    await supabase.from('assignments').delete().eq('script_id', id);
-    const { error: sErr } = await supabase.from('scripts').delete().eq('id', id);
-    if (sErr) { alert('Failed to delete script: ' + sErr.message); return; }
+    const res = await fetch(`/api/scripts/${id}`, { method: 'DELETE' });
+    const json = await res.json();
+    if (!res.ok) { alert('Failed to delete: ' + json.error); return; }
     setScripts(scripts.filter(s => s.id !== id));
   }
 
