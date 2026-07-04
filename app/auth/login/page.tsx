@@ -81,8 +81,12 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 text-center text-sm text-gray-400">
-            Use your <span className="font-medium text-gray-500">@vidrow.in</span> email to sign in
+          <div className="mt-6 text-center text-sm text-gray-500">
+            New to Vidrow?{' '}
+            <Link href="/auth/signup" className="text-blue-600 hover:underline font-medium">
+              Create account
+            </Link>
+            <p className="text-xs text-gray-400 mt-1">Only @vidrow.in emails are allowed</p>
           </div>
         </div>
       </div>
