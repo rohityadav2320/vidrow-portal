@@ -94,6 +94,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signUp(email: string, password: string, fullName: string) {
+    if (!email.toLowerCase().endsWith('@vidrow.in')) {
+      throw new Error('Only @vidrow.in email addresses are allowed.');
+    }
+
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,

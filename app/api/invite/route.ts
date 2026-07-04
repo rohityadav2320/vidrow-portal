@@ -9,6 +9,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email and name are required' }, { status: 400 });
     }
 
+    if (!email.toLowerCase().endsWith('@vidrow.in')) {
+      return NextResponse.json({ error: 'Only @vidrow.in email addresses can be invited.' }, { status: 403 });
+    }
+
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3002';
 
     // Create the auth user and send invite email

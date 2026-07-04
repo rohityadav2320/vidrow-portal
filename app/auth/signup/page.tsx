@@ -18,6 +18,11 @@ export default function SignupPage() {
     e.preventDefault();
     setError('');
 
+    if (!email.toLowerCase().endsWith('@vidrow.in')) {
+      setError('Only @vidrow.in email addresses can create an account.');
+      return;
+    }
+
     if (password.length < 6) {
       setError('Password must be at least 6 characters.');
       return;
@@ -74,7 +79,7 @@ export default function SignupPage() {
                 onChange={e => setEmail(e.target.value)}
                 required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="your@email.com"
+                placeholder="yourname@vidrow.in"
               />
             </div>
 
