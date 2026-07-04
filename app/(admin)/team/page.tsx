@@ -42,9 +42,13 @@ export default function TeamPage() {
     setIsInviting(true);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch('/api/invite', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token ?? ''}`,
+        },
         body: JSON.stringify(form),
       });
 
@@ -68,9 +72,13 @@ export default function TeamPage() {
   async function handleRemove(memberId: string, memberName: string) {
     if (!confirm(`Remove ${memberName} from the team? They won't be able to log in.`)) return;
 
+    const { data: { session } } = await supabase.auth.getSession();
     const res = await fetch('/api/team', {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session?.access_token ?? ''}`,
+      },
       body: JSON.stringify({ id: memberId }),
     });
     const json = await res.json();

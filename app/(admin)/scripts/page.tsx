@@ -157,7 +157,11 @@ export default function ScriptsPage() {
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this script? Its assignment history will also be removed.')) return;
-    const res = await fetch(`/api/scripts/${id}`, { method: 'DELETE' });
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(`/api/scripts/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+    });
     const json = await res.json();
     if (!res.ok) { alert('Failed to delete: ' + json.error); return; }
     setScripts(scripts.filter(s => s.id !== id));

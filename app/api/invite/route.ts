@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { requireAdmin } from '@/lib/auth-check';
 
 export async function POST(req: NextRequest) {
   try {
+    if (!await requireAdmin(req)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { email, full_name } = await req.json();
 
     if (!email || !full_name) {
