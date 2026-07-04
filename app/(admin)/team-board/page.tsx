@@ -11,7 +11,7 @@ const POD_COLOR_MAP: Record<string, string> = {
   pink:   'bg-pink-100 text-pink-800',
   green:  'bg-green-100 text-green-800',
 };
-import { RefreshCw, Plus, X, CheckCircle, AlertTriangle, Clock } from 'lucide-react';
+import { RefreshCw, Plus, X, CheckCircle, AlertTriangle, Clock, Search } from 'lucide-react';
 
 interface EditorAssignment {
   id: string;
@@ -356,9 +356,19 @@ function AssignModal({ editors, scripts, existingAssignments, onClose, onAssigne
 }) {
   const [selectedEditor, setSelectedEditor] = useState('');
   const [selectedScript, setSelectedScript] = useState('');
+  const [scriptSearch, setScriptSearch] = useState('');
+  const [showScriptDropdown, setShowScriptDropdown] = useState(false);
   const [deadline, setDeadline] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const selectedScriptObj = scripts.find(s => s.id === selectedScript);
+  const filteredScripts = scripts.filter(s => {
+    const q = scriptSearch.toLowerCase();
+    return s.title.toLowerCase().includes(q)
+      || (s.pod || '').toLowerCase().includes(q)
+      || (s.client || '').toLowerCase().includes(q);
+  });
 
   const alreadyAssigned = selectedScript
     ? existingAssignments.find(a => a.script_id === selectedScript && a.status !== 'done')
@@ -406,22 +416,53 @@ function AssignModal({ editors, scripts, existingAssignments, onClose, onAssigne
         <form onSubmit={handleAssign} className="p-6 space-y-5">
           {error && <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-lg">{error}</div>}
 
-          {/* Script Select */}
-          <div>
+          {/* Script Search */}
+          <div className="relative">
             <label className="block text-sm font-semibold text-gray-700 mb-2">Select Script</label>
-            <select
-              required
-              value={selectedScript}
-              onChange={e => setSelectedScript(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Choose script...</option>
-              {scripts.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.title}{s.pod ? ` · ${s.pod}` : ''}{s.client ? ` · ${s.client}` : ''}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder={selectedScriptObj ? selectedScriptObj.title : 'Search scripts...'}
+                value={showScriptDropdown ? scriptSearch : (selectedScriptObj ? selectedScriptObj.title : '')}
+                onChange={e => { setScriptSearch(e.target.value); setShowScriptDropdown(true); if (!e.target.value) setSelectedScript(''); }}
+                onFocus={() => { setScriptSearch(''); setShowScriptDropdown(true); }}
+                onBlur={() => setTimeout(() => setShowScriptDropdown(false), 150)}
+                className="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+              {selectedScript && (
+                <button
+                  type="button"
+                  onClick={() => { setSelectedScript(''); setScriptSearch(''); }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            {showScriptDropdown && (
+              <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
+                {filteredScripts.length === 0 ? (
+                  <div className="px-4 py-3 text-sm text-gray-400">No scripts found</div>
+                ) : (
+                  filteredScripts.map(s => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onMouseDown={() => { setSelectedScript(s.id); setScriptSearch(''); setShowScriptDropdown(false); }}
+                      className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 transition ${selectedScript === s.id ? 'bg-blue-50' : ''}`}
+                    >
+                      <p className="text-sm font-medium text-gray-900 truncate">{s.title}</p>
+                      {(s.pod || s.client) && (
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {[s.pod, s.client].filter(Boolean).join(' · ')}
+                        </p>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
             {alreadyAssigned && (
               <p className="text-xs text-orange-600 mt-1.5 font-medium">
                 ⚠️ Already assigned to {alreadyAssigned.editor_name}
