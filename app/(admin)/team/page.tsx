@@ -68,9 +68,14 @@ export default function TeamPage() {
   async function handleRemove(memberId: string, memberName: string) {
     if (!confirm(`Remove ${memberName} from the team? They won't be able to log in.`)) return;
 
-    const { error } = await supabase.from('users').delete().eq('id', memberId);
-    if (error) {
-      alert('Failed to remove member: ' + error.message);
+    const res = await fetch('/api/team', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: memberId }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      alert('Failed to remove member: ' + json.error);
     } else {
       setMembers(prev => prev.filter(m => m.id !== memberId));
     }
