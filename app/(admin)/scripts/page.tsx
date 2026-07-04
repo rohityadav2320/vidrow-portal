@@ -111,7 +111,12 @@ export default function ScriptsPage() {
     e.preventDefault();
     if (!formData.batchNo.trim() || !formData.scriptNo.trim() || !formData.pod) return;
 
-    const generatedTitle = [formData.batchNo.trim(), formData.scriptNo.trim(), formData.client].filter(Boolean).join('_');
+    const parts = [
+      formData.client,
+      formData.batchNo.trim() ? `Batch${formData.batchNo.trim()}` : '',
+      formData.scriptNo.trim() ? `Script${formData.scriptNo.trim()}` : '',
+    ].filter(Boolean);
+    const generatedTitle = parts.join('_');
 
     const duplicate = scripts.find(
       s => s.title.trim().toLowerCase() === generatedTitle.toLowerCase() && s.pod === formData.pod
@@ -389,7 +394,11 @@ export default function ScriptsPage() {
             {(formData.batchNo || formData.scriptNo) && (
               <p className="text-xs text-gray-400 mb-3">
                 Will be saved as: <span className="font-semibold text-gray-600">
-                  {[formData.batchNo, formData.scriptNo, formData.client].filter(Boolean).join('_') || '—'}
+                  {[
+                    formData.client,
+                    formData.batchNo ? `Batch${formData.batchNo}` : '',
+                    formData.scriptNo ? `Script${formData.scriptNo}` : '',
+                  ].filter(Boolean).join('_') || '—'}
                 </span>
               </p>
             )}
