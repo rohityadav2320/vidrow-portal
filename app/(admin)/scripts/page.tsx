@@ -39,7 +39,7 @@ export default function ScriptsPage() {
   const [pods, setPods] = useState<PodOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({ title: '', pod: '', description: '', client: '' });
+  const [formData, setFormData] = useState({ batchNo: '', scriptNo: '', pod: '', description: '', client: '' });
   const [newClientName, setNewClientName] = useState('');
   const [addingClient, setAddingClient] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -109,13 +109,15 @@ export default function ScriptsPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!formData.title || !formData.pod) return;
+    if (!formData.batchNo.trim() || !formData.scriptNo.trim() || !formData.pod) return;
+
+    const generatedTitle = [formData.batchNo.trim(), formData.scriptNo.trim(), formData.client].filter(Boolean).join('_');
 
     const duplicate = scripts.find(
-      s => s.title.trim().toLowerCase() === formData.title.trim().toLowerCase() && s.pod === formData.pod
+      s => s.title.trim().toLowerCase() === generatedTitle.toLowerCase() && s.pod === formData.pod
     );
     if (duplicate) {
-      alert(`"${formData.title}" already exists in ${formData.pod}. Use a different title.`);
+      alert(`"${generatedTitle}" already exists in ${formData.pod}.`);
       return;
     }
 
@@ -124,7 +126,7 @@ export default function ScriptsPage() {
       const { data, error } = await supabase
         .from('scripts')
         .insert({
-          title: formData.title.trim(),
+          title: generatedTitle,
           pod: formData.pod,
           description: formData.description || null,
           client: formData.client || null,
@@ -133,12 +135,12 @@ export default function ScriptsPage() {
         .select()
         .single();
       if (error) {
-        if (error.code === '23505') { alert(`"${formData.title}" already exists in ${formData.pod}.`); }
+        if (error.code === '23505') { alert(`"${generatedTitle}" already exists in ${formData.pod}.`); }
         else throw error;
         return;
       }
       setScripts([data, ...scripts]);
-      setFormData({ title: '', pod: '', description: '', client: '' });
+      setFormData({ batchNo: '', scriptNo: '', pod: '', description: '', client: '' });
       setNewClientName('');
       setShowForm(false);
     } catch (err: any) {
@@ -345,18 +347,29 @@ export default function ScriptsPage() {
         <div className="bg-white rounded-xl border border-blue-200 shadow-sm p-5 mb-6">
           <h2 className="font-bold text-gray-900 mb-4">New Script</h2>
           <form onSubmit={handleCreate}>
-            {/* Row 1: Title + Pod */}
-            <div className="flex items-end gap-3 mb-3">
-              <div className="flex-1">
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Title *</label>
+            {/* Row 1: Batch No + Script No + Pod */}
+            <div className="flex items-end gap-3 mb-2">
+              <div className="w-36">
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Batch No. *</label>
                 <input
                   type="text"
                   required
                   autoFocus
-                  value={formData.title}
-                  onChange={e => setFormData({ ...formData, title: e.target.value })}
+                  value={formData.batchNo}
+                  onChange={e => setFormData({ ...formData, batchNo: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"
-                  placeholder="Script title..."
+                  placeholder="e.g. B19"
+                />
+              </div>
+              <div className="w-36">
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Script No. *</label>
+                <input
+                  type="text"
+                  required
+                  value={formData.scriptNo}
+                  onChange={e => setFormData({ ...formData, scriptNo: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g. S16"
                 />
               </div>
               <div className="w-40">
@@ -372,6 +385,14 @@ export default function ScriptsPage() {
                 </select>
               </div>
             </div>
+            {/* Live title preview */}
+            {(formData.batchNo || formData.scriptNo) && (
+              <p className="text-xs text-gray-400 mb-3">
+                Will be saved as: <span className="font-semibold text-gray-600">
+                  {[formData.batchNo, formData.scriptNo, formData.client].filter(Boolean).join('_') || '—'}
+                </span>
+              </p>
+            )}
             {/* Description */}
             <div className="mb-3">
               <label className="block text-xs font-semibold text-gray-600 mb-1">Description <span className="font-normal text-gray-400">(optional)</span></label>
