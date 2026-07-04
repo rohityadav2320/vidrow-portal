@@ -92,14 +92,16 @@ export default function SettingsPage() {
   }
 
   async function handleDeletePod(pod: Pod) {
-    // Check if any scripts use this pod
     const { count } = await supabase
       .from('scripts').select('id', { count: 'exact', head: true }).eq('pod', pod.name);
-    if ((count || 0) > 0) {
-      alert(`Cannot delete "${pod.name}" — ${count} script(s) are using it. Reassign them first.`);
-      return;
+    const scriptCount = count || 0;
+    const msg = scriptCount > 0
+      ? `"${pod.name}" is used in ${scriptCount} script(s). Deleting will remove the pod from those scripts. Continue?`
+      : `Delete pod "${pod.name}"?`;
+    if (!confirm(msg)) return;
+    if (scriptCount > 0) {
+      await supabase.from('scripts').update({ pod: null }).eq('pod', pod.name);
     }
-    if (!confirm(`Delete pod "${pod.name}"?`)) return;
     await supabase.from('pods').delete().eq('id', pod.id);
     setPods(prev => prev.filter(p => p.id !== pod.id));
   }
