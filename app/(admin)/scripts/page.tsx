@@ -615,11 +615,16 @@ export default function ScriptsPage() {
                     className={`hover:bg-gray-50 transition ${dlInfo?.overdue ? 'bg-red-50/40' : ''}`}
                   >
                     <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-start gap-2">
                         {dlInfo?.overdue && (
-                          <AlertTriangle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+                          <AlertTriangle className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
                         )}
-                        <p className="font-medium text-gray-900 text-sm">{script.title}</p>
+                        <div>
+                          <p className="font-medium text-gray-900 text-sm">{script.title}</p>
+                          {script.description && (
+                            <p className="text-xs text-gray-400 mt-0.5 max-w-xs truncate">{script.description}</p>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="px-5 py-3.5">
