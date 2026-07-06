@@ -440,7 +440,7 @@ export default function ScriptsPage() {
             ))}
           </div>
         )}
-        {activeBatches.length > 0 && (
+        {filterClient !== 'All' && activeBatches.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-gray-400 font-medium w-10">Batch</span>
             <button onClick={() => setFilterBatch('All')} className={`text-xs font-semibold px-3 py-1.5 rounded-full transition ${filterBatch === 'All' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>All</button>
