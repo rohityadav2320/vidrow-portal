@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { Script } from '@/lib/types';
 import { POD_COLORS } from '@/lib/types';
-import { Plus, LayoutDashboard, AlertTriangle, Clock, X } from 'lucide-react';
+import { AlertTriangle, Clock, X } from 'lucide-react';
 
 interface EditorAssignment {
   id: string;
@@ -123,17 +123,6 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
           <p className="text-gray-400 text-sm mt-0.5">Vidrow production overview</p>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={() => router.push('/team-board')} className="flex items-center gap-2 border border-gray-300 text-gray-600 text-sm font-medium py-2 px-4 rounded-lg hover:bg-gray-50 transition">
-            <LayoutDashboard className="w-4 h-4" />Script Assigner
-          </button>
-          <button onClick={() => router.push('/editors')} className="flex items-center gap-2 border border-gray-300 text-gray-600 text-sm font-medium py-2 px-4 rounded-lg hover:bg-gray-50 transition">
-            <Plus className="w-4 h-4" />New Editor
-          </button>
-          <button onClick={() => router.push('/scripts')} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-4 rounded-lg transition">
-            <Plus className="w-4 h-4" />New Script
-          </button>
         </div>
       </div>
 
