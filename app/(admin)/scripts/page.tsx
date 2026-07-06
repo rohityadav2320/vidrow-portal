@@ -655,7 +655,16 @@ export default function ScriptsPage() {
       )}
 
       {/* ── Assign Modal (single or bulk) ────────────────────────────────── */}
-      {assignModal && (
+      {assignModal && (() => {
+        // Compute live workload from editorStatuses
+        const workload: Record<string, number> = {};
+        editors.forEach(e => { workload[e.name] = 0; });
+        Object.values(editorStatuses).forEach(a => {
+          if (a.status !== 'done' && workload[a.editor_name] !== undefined) {
+            workload[a.editor_name]++;
+          }
+        });
+        return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
             <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
@@ -679,20 +688,29 @@ export default function ScriptsPage() {
               )}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Select Editor</label>
-                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-                  {editors.map(ed => (
+                <div className="grid grid-cols-2 gap-2 max-h-52 overflow-y-auto">
+                  {editors.map(ed => {
+                    const count = workload[ed.name] || 0;
+                    const isFree = count === 0;
+                    return (
                     <button
                       key={ed.id}
                       type="button"
                       onClick={() => setAssignEditor(ed.name)}
                       className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition text-left ${assignEditor === ed.name ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'}`}
                     >
-                      <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center justify-center flex-shrink-0">
+                      <div className={`w-7 h-7 rounded-full font-bold text-xs flex items-center justify-center flex-shrink-0 ${isFree ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
                         {ed.name.charAt(0).toUpperCase()}
                       </div>
-                      <span className="truncate">{ed.name}</span>
+                      <div className="min-w-0">
+                        <p className="truncate">{ed.name}</p>
+                        <p className={`text-xs font-normal ${isFree ? 'text-green-600' : 'text-orange-600'}`}>
+                          {isFree ? '● Free' : `● ${count} video${count > 1 ? 's' : ''}`}
+                        </p>
+                      </div>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
               <div>
@@ -721,7 +739,8 @@ export default function ScriptsPage() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ── Revision Modal ───────────────────────────────────────────────── */}
       {revisionScript && (
