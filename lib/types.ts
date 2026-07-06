@@ -25,6 +25,10 @@ export interface Editor {
   id: string;
   name: string;
   status: 'active' | 'inactive';
+  editor_type?: 'contract' | 'freelancer';
+  ai_videos?: boolean;
+  unavailable?: boolean;
+  unavailable_reason?: string | null;
   created_at: string;
 }
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Trash2, Users, ChevronDown, ChevronUp, CheckCircle, Clock, Calendar, TrendingUp, Download, Pencil, Check, X } from 'lucide-react';
+import { Trash2, Users, ChevronDown, ChevronUp, CheckCircle, Clock, Calendar, TrendingUp, Download, Pencil, Check, X, Moon, Sun } from 'lucide-react';
 import type { Script } from '@/lib/types';
 
 interface Editor {
@@ -11,6 +11,8 @@ interface Editor {
   editor_type: 'contract' | 'freelancer';
   ai_videos: boolean;
   status: 'active' | 'inactive';
+  unavailable: boolean;
+  unavailable_reason: string | null;
   created_at: string;
 }
 
@@ -46,6 +48,11 @@ export default function EditorsPage() {
   const [editType, setEditType] = useState<'contract' | 'freelancer'>('freelancer');
   const [editAiVideos, setEditAiVideos] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
+
+  // Unavailable
+  const [unavailableEditId, setUnavailableEditId] = useState<string | null>(null);
+  const [unavailableReason, setUnavailableReason] = useState('');
+  const [unavailableSaving, setUnavailableSaving] = useState(false);
 
   const [filterType, setFilterType] = useState<'all' | 'contract' | 'freelancer'>('all');
   const [expandedEditor, setExpandedEditor] = useState<string | null>(null);
@@ -129,6 +136,30 @@ export default function EditorsPage() {
     } finally {
       setEditSaving(false);
     }
+  }
+
+  async function markUnavailable(id: string, reason: string) {
+    setUnavailableSaving(true);
+    try {
+      const { data, error } = await supabase
+        .from('editors')
+        .update({ unavailable: true, unavailable_reason: reason.trim() || null })
+        .eq('id', id).select().single();
+      if (error) throw error;
+      setEditors(prev => prev.map(e => e.id === id ? data : e));
+      setUnavailableEditId(null);
+      setUnavailableReason('');
+    } catch (err: any) { alert('Failed: ' + err.message); }
+    finally { setUnavailableSaving(false); }
+  }
+
+  async function markAvailable(id: string) {
+    const { data, error } = await supabase
+      .from('editors')
+      .update({ unavailable: false, unavailable_reason: null })
+      .eq('id', id).select().single();
+    if (error) { alert('Failed: ' + error.message); return; }
+    setEditors(prev => prev.map(e => e.id === id ? data : e));
   }
 
   async function removeEditor(id: string) {
@@ -479,7 +510,7 @@ export default function EditorsPage() {
                 const isEditing = editingId === editor.id;
 
                 return (
-                  <div key={editor.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div key={editor.id} className={`bg-white rounded-xl shadow-sm border overflow-hidden ${editor.unavailable ? 'border-orange-200 bg-orange-50/20' : 'border-gray-100'}`}>
                     {/* Editor Row */}
                     {isEditing ? (
                       <div className="flex items-center gap-3 px-5 py-3.5 bg-blue-50/60">
@@ -552,7 +583,15 @@ export default function EditorsPage() {
                                   {active.length} active
                                 </span>
                               )}
+                              {editor.unavailable && (
+                                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-500 text-white flex items-center gap-1">
+                                  <Moon className="w-2.5 h-2.5" />Unavailable
+                                </span>
+                              )}
                             </div>
+                            {editor.unavailable && editor.unavailable_reason && (
+                              <p className="text-xs text-orange-600 font-medium mt-0.5">🌙 {editor.unavailable_reason}</p>
+                            )}
                             <p className="text-xs text-gray-400 mt-0.5">
                               <span className="text-green-600 font-semibold">{done.length} all-time</span>
                               {' · '}
@@ -571,6 +610,17 @@ export default function EditorsPage() {
                               {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                             </button>
                           )}
+                          {/* Unavailable toggle */}
+                          <button
+                            onClick={() => {
+                              if (editor.unavailable) { markAvailable(editor.id); }
+                              else { setUnavailableEditId(editor.id); setUnavailableReason(''); }
+                            }}
+                            title={editor.unavailable ? 'Mark as Available' : 'Mark as Unavailable'}
+                            className={`p-2 rounded-lg transition ${editor.unavailable ? 'text-orange-500 bg-orange-50 hover:bg-orange-100' : 'text-gray-300 hover:text-orange-500 hover:bg-orange-50'}`}
+                          >
+                            {editor.unavailable ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                          </button>
                           <button
                             onClick={() => startEdit(editor)}
                             className="text-gray-300 hover:text-blue-500 p-2 rounded-lg hover:bg-blue-50 transition"
@@ -584,6 +634,34 @@ export default function EditorsPage() {
                             title="Delete editor"
                           >
                             <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Unavailable reason form */}
+                    {!isEditing && unavailableEditId === editor.id && (
+                      <div className="px-5 py-4 bg-orange-50 border-t border-orange-100">
+                        <p className="text-xs font-semibold text-orange-700 mb-2">Why is {editor.name} unavailable?</p>
+                        <div className="flex gap-2">
+                          <input
+                            autoFocus
+                            type="text"
+                            value={unavailableReason}
+                            onChange={e => setUnavailableReason(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') markUnavailable(editor.id, unavailableReason); if (e.key === 'Escape') setUnavailableEditId(null); }}
+                            placeholder="e.g. On holiday, Busy with other project..."
+                            className="flex-1 px-3 py-2 border border-orange-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-orange-400 focus:outline-none"
+                          />
+                          <button
+                            onClick={() => markUnavailable(editor.id, unavailableReason)}
+                            disabled={unavailableSaving}
+                            className="bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
+                          >
+                            {unavailableSaving ? '...' : 'Confirm'}
+                          </button>
+                          <button onClick={() => setUnavailableEditId(null)} className="text-gray-400 hover:text-gray-600 p-2 rounded-lg hover:bg-gray-100 transition">
+                            <X className="w-4 h-4" />
                           </button>
                         </div>
                       </div>

@@ -692,20 +692,33 @@ export default function ScriptsPage() {
                   {editors.map(ed => {
                     const count = workload[ed.name] || 0;
                     const isFree = count === 0;
+                    const isUnavailable = (ed as any).unavailable;
                     return (
                     <button
                       key={ed.id}
                       type="button"
                       onClick={() => setAssignEditor(ed.name)}
-                      className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition text-left ${assignEditor === ed.name ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'}`}
+                      className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition text-left ${
+                        assignEditor === ed.name ? 'border-blue-500 bg-blue-50 text-blue-700' :
+                        isUnavailable ? 'border-orange-200 bg-orange-50/40 text-gray-400 opacity-70' :
+                        'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                      }`}
                     >
-                      <div className={`w-7 h-7 rounded-full font-bold text-xs flex items-center justify-center flex-shrink-0 ${isFree ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                        {ed.name.charAt(0).toUpperCase()}
+                      <div className={`w-7 h-7 rounded-full font-bold text-xs flex items-center justify-center flex-shrink-0 ${
+                        isUnavailable ? 'bg-orange-100 text-orange-400' :
+                        isFree ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                      }`}>
+                        {isUnavailable ? '🌙' : ed.name.charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0">
                         <p className="truncate">{ed.name}</p>
-                        <p className={`text-xs font-normal ${isFree ? 'text-green-600' : 'text-orange-600'}`}>
-                          {isFree ? '● Free' : `● ${count} video${count > 1 ? 's' : ''}`}
+                        <p className={`text-xs font-normal truncate ${
+                          isUnavailable ? 'text-orange-500' :
+                          isFree ? 'text-green-600' : 'text-orange-600'
+                        }`}>
+                          {isUnavailable
+                            ? ((ed as any).unavailable_reason || 'Unavailable')
+                            : isFree ? '● Free' : `● ${count} video${count > 1 ? 's' : ''}`}
                         </p>
                       </div>
                     </button>
