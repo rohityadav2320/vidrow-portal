@@ -288,6 +288,9 @@ function EditorCard({ editor, assignments, onUpdate, podColorMap }: {
                       {dlInfo?.overdue && <AlertTriangle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />}
                       <p className="text-sm font-semibold text-gray-900 truncate">{a.script?.title || 'Unknown'}</p>
                     </div>
+                    {(a.script as any)?.description && (
+                      <p className="text-xs text-gray-400 mt-0.5 truncate">{(a.script as any).description}</p>
+                    )}
                     <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                       {a.script?.pod && (
                         <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${podColorMap[a.script.pod] || 'bg-gray-100 text-gray-700'}`}>
