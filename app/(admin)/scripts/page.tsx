@@ -434,12 +434,12 @@ export default function ScriptsPage() {
           <button onClick={() => { setFilterPod('All'); setFilterStatus('All'); setFilterClient('All'); }} className="mt-3 text-blue-600 text-sm font-medium hover:underline">Clear filters</button>
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow overflow-hidden">
-          <table className="w-full">
+        <div className="bg-white rounded-xl shadow overflow-x-auto">
+          <table className="w-full min-w-[900px]">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
                 {/* Checkbox — select all */}
-                <th className="px-3 py-3 w-10">
+                <th className="px-3 py-3 w-8">
                   <input
                     type="checkbox"
                     checked={selectedIds.size === filtered.length && filtered.length > 0}
@@ -447,14 +447,14 @@ export default function ScriptsPage() {
                     className="w-3.5 h-3.5 rounded accent-blue-600 cursor-pointer"
                   />
                 </th>
-                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Title</th>
-                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Client</th>
-                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Pod</th>
-                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Deadline</th>
-                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Editor</th>
-                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Created</th>
-                <th className="px-5 py-3"></th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Title</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Client</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Pod</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Deadline</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Editor</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Created</th>
+                <th className="px-3 py-3 w-20"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -534,7 +534,7 @@ export default function ScriptsPage() {
                 return (
                   <tr key={script.id} className={`hover:bg-gray-50 transition ${isSelected ? 'bg-blue-50/50' : dlInfo?.overdue ? 'bg-red-50/40' : ''}`}>
                     {/* Checkbox */}
-                    <td className="px-3 py-3.5">
+                    <td className="px-3 py-3">
                       <input
                         type="checkbox"
                         checked={isSelected}
@@ -543,17 +543,17 @@ export default function ScriptsPage() {
                       />
                     </td>
                     {/* Title */}
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-3">
                       <div className="flex items-start gap-2">
                         {dlInfo?.overdue && <AlertTriangle className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />}
                         <div>
                           <p className="font-medium text-gray-900 text-sm">{script.title}</p>
-                          {(script as any).description && <p className="text-xs text-gray-400 mt-0.5 max-w-xs truncate">{(script as any).description}</p>}
+                          {(script as any).description && <p className="text-xs text-gray-400 mt-0.5 max-w-[200px] truncate">{(script as any).description}</p>}
                         </div>
                       </div>
                     </td>
                     {/* Client */}
-                    <td className="px-5 py-3.5">
+                    <td className="px-3 py-3">
                       {script.client ? (
                         <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
                           <Building2 className="w-3 h-3" />{script.client}
@@ -561,7 +561,7 @@ export default function ScriptsPage() {
                       ) : <span className="text-gray-300 text-xs">—</span>}
                     </td>
                     {/* Pod */}
-                    <td className="px-5 py-3.5">
+                    <td className="px-3 py-3">
                       {script.pod ? (
                         <span className={`text-xs font-semibold px-2 py-1 rounded-full ${POD_COLOR_MAP[pods.find(p => p.name === script.pod)?.color || 'blue'] || 'bg-gray-100 text-gray-700'}`}>
                           {script.pod}
@@ -569,7 +569,7 @@ export default function ScriptsPage() {
                       ) : <span className="text-gray-300 text-xs">—</span>}
                     </td>
                     {/* Deadline */}
-                    <td className="px-5 py-3.5">
+                    <td className="px-3 py-3">
                       {dlInfo ? (
                         <div className={`flex items-center gap-1 ${dlInfo.color}`}>
                           {dlInfo.overdue ? <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> : <Clock className="w-3.5 h-3.5 flex-shrink-0" />}
@@ -578,7 +578,7 @@ export default function ScriptsPage() {
                       ) : <span className="text-gray-300 text-xs">—</span>}
                     </td>
                     {/* Status */}
-                    <td className="px-5 py-3.5">
+                    <td className="px-3 py-3">
                       <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
                         realStatus === 'done' ? 'bg-green-100 text-green-700' :
                         realStatus === 'revision' ? 'bg-amber-100 text-amber-700' :
@@ -589,34 +589,34 @@ export default function ScriptsPage() {
                         {realStatus === 'done' ? '✓ Done' : realStatus === 'revision' ? '↩ Revision' : realStatus === 'editing' ? 'Editing' : realStatus === 'with_editor' ? 'With Editor' : 'Pending'}
                       </span>
                     </td>
-                    {/* Editor — NEW dedicated column */}
-                    <td className="px-5 py-3.5">
+                    {/* Editor column */}
+                    <td className="px-3 py-3">
                       {assignment ? (
                         <div className="flex items-center gap-1.5">
                           <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
                             <span className="text-indigo-700 font-bold text-xs">{assignment.editor_name.charAt(0).toUpperCase()}</span>
                           </div>
-                          <span className="text-xs font-medium text-gray-700 truncate max-w-[90px]">{assignment.editor_name}</span>
+                          <span className="text-xs font-medium text-gray-700 truncate max-w-[80px]">{assignment.editor_name}</span>
                           {realStatus === 'done' && assignment.completed_at && (
-                            <span className="text-xs text-gray-400">· {new Date(assignment.completed_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
+                            <span className="text-xs text-gray-400 hidden xl:inline">· {new Date(assignment.completed_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
                           )}
                         </div>
                       ) : (
                         <button
                           onClick={() => { setAssignModal({ scripts: [script], mode: 'single' }); setAssignEditor(''); setAssignDeadline(''); }}
-                          className="text-xs text-gray-400 hover:text-blue-600 hover:bg-blue-50 px-2 py-1 rounded transition font-medium"
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 hover:bg-blue-100 px-2.5 py-1 rounded-full transition whitespace-nowrap"
                         >
-                          + Assign
+                          <UserCheck className="w-3 h-3" />Assign
                         </button>
                       )}
                     </td>
                     {/* Created */}
-                    <td className="px-5 py-3.5 text-xs text-gray-400">
+                    <td className="px-3 py-3 text-xs text-gray-400 whitespace-nowrap">
                       {new Date(script.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                     </td>
                     {/* Actions */}
-                    <td className="px-5 py-3.5 text-right">
-                      <div className="flex items-center justify-end gap-1">
+                    <td className="px-3 py-3 text-right">
+                      <div className="flex items-center justify-end gap-0.5">
                         {realStatus === 'done' && (
                           <button onClick={() => { setRevisionScript(script); setRevisionEditor(assignment?.editor_name || ''); setRevisionDeadline(''); }} title="Send for Revision" className="text-amber-400 hover:text-amber-600 p-1.5 rounded hover:bg-amber-50 transition">
                             <RotateCcw className="w-3.5 h-3.5" />
