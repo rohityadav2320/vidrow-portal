@@ -204,6 +204,8 @@ function EditorCard({ editor, assignments, onUpdate, podColorMap }: {
   const active = assignments.filter(a => a.status !== 'done');
   const done = assignments.filter(a => a.status === 'done');
   const isFree = active.length === 0;
+  const isUnavailable = !!(editor as any).unavailable;
+  const unavailableReason = (editor as any).unavailable_reason as string | null;
   const hasOverdue = active.some(a => getDeadlineInfo(a.deadline)?.overdue);
 
   async function markDone(id: string) {
@@ -223,16 +225,21 @@ function EditorCard({ editor, assignments, onUpdate, podColorMap }: {
 
   return (
     <div className={`bg-white rounded-xl border-2 overflow-hidden ${
+      isUnavailable ? 'border-gray-200 opacity-75' :
       hasOverdue ? 'border-red-300' : isFree ? 'border-green-200' : 'border-orange-200'
     }`}>
       {/* Header */}
-      <div className={`px-4 py-3.5 ${hasOverdue ? 'bg-red-50' : isFree ? 'bg-green-50' : 'bg-orange-50'}`}>
+      <div className={`px-4 py-3.5 ${
+        isUnavailable ? 'bg-gray-50' :
+        hasOverdue ? 'bg-red-50' : isFree ? 'bg-green-50' : 'bg-orange-50'
+      }`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm ${
-              hasOverdue ? 'bg-red-500' : isFree ? 'bg-green-500' : 'bg-orange-500'
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm ${
+              isUnavailable ? 'bg-gray-200 text-gray-500' :
+              hasOverdue ? 'bg-red-500 text-white' : isFree ? 'bg-green-500 text-white' : 'bg-orange-500 text-white'
             }`}>
-              {editor.name.charAt(0).toUpperCase()}
+              {isUnavailable ? '🌙' : editor.name.charAt(0).toUpperCase()}
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -248,16 +255,19 @@ function EditorCard({ editor, assignments, onUpdate, podColorMap }: {
                 )}
               </div>
               <p className={`text-xs font-semibold mt-0.5 ${
+                isUnavailable ? 'text-gray-400' :
                 hasOverdue ? 'text-red-600' : isFree ? 'text-green-600' : 'text-orange-600'
               }`}>
-                {hasOverdue
+                {isUnavailable
+                  ? `🌙 UNAVAILABLE${unavailableReason ? ` — ${unavailableReason}` : ''}`
+                  : hasOverdue
                   ? `⚠ OVERDUE — ${active.length} video${active.length > 1 ? 's' : ''}`
                   : isFree ? '● FREE'
                   : `● WORKING — ${active.length} video${active.length > 1 ? 's' : ''}`}
               </p>
             </div>
           </div>
-          {active.length > 0 && (
+          {active.length > 0 && !isUnavailable && (
             <span className={`text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center ${
               hasOverdue ? 'bg-red-500' : 'bg-orange-500'
             }`}>
