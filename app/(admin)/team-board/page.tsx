@@ -46,6 +46,7 @@ export default function TeamBoardPage() {
   const [assignments, setAssignments] = useState<EditorAssignment[]>([]);
   const [scripts, setScripts] = useState<Script[]>([]);
   const [podColorMap, setPodColorMap] = useState<Record<string, string>>({});
+  const [pods, setPods] = useState<{ name: string; color: string }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -68,6 +69,7 @@ export default function TeamBoardPage() {
       const colorMap: Record<string, string> = {};
       (podsRes.data || []).forEach((p: any) => { colorMap[p.name] = POD_COLOR_MAP[p.color] || 'bg-gray-100 text-gray-700'; });
       setPodColorMap(colorMap);
+      setPods(podsRes.data || []);
 
       const scriptsMap: Record<string, Script> = {};
       (scriptsRes.data || []).forEach((s: Script) => { scriptsMap[s.id] = s; });
@@ -183,6 +185,7 @@ export default function TeamBoardPage() {
         <AssignModal
           editors={editors}
           scripts={scripts}
+          pods={pods}
           existingAssignments={assignments}
           onClose={() => setShowAssignModal(false)}
           onAssigned={() => { setShowAssignModal(false); loadData(); }}
@@ -347,47 +350,64 @@ function EditorCard({ editor, assignments, onUpdate, podColorMap }: {
   );
 }
 
-function AssignModal({ editors, scripts, existingAssignments, onClose, onAssigned }: {
+function AssignModal({ editors, scripts, pods, existingAssignments, onClose, onAssigned }: {
   editors: Editor[];
   scripts: Script[];
+  pods: { name: string; color: string }[];
   existingAssignments: EditorAssignment[];
   onClose: () => void;
   onAssigned: () => void;
 }) {
-  const [selectedEditor, setSelectedEditor] = useState('');
-  const [selectedScript, setSelectedScript] = useState('');
-  const [scriptSearch, setScriptSearch] = useState('');
-  const [showScriptDropdown, setShowScriptDropdown] = useState(false);
-  const [deadline, setDeadline] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [selectedEditor, setSelectedEditor]     = useState('');
+  const [selectedScripts, setSelectedScripts]   = useState<Set<string>>(new Set());
+  const [filterPod, setFilterPod]               = useState('All');
+  const [scriptSearch, setScriptSearch]         = useState('');
+  const [deadline, setDeadline]                 = useState('');
+  const [saving, setSaving]                     = useState(false);
+  const [error, setError]                       = useState('');
 
-  const selectedScriptObj = scripts.find(s => s.id === selectedScript);
   const filteredScripts = scripts.filter(s => {
     const q = scriptSearch.toLowerCase();
-    return s.title.toLowerCase().includes(q)
-      || (s.pod || '').toLowerCase().includes(q)
-      || (s.client || '').toLowerCase().includes(q);
+    const matchSearch = !q || s.title.toLowerCase().includes(q) || (s.client || '').toLowerCase().includes(q);
+    const matchPod = filterPod === 'All' || s.pod === filterPod;
+    return matchSearch && matchPod;
   });
 
-  const alreadyAssigned = selectedScript
-    ? existingAssignments.find(a => a.script_id === selectedScript && a.status !== 'done')
-    : null;
+  function toggleScript(id: string) {
+    setSelectedScripts(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  }
+
+  function toggleAll() {
+    if (selectedScripts.size === filteredScripts.length && filteredScripts.length > 0) {
+      setSelectedScripts(new Set());
+    } else {
+      setSelectedScripts(new Set(filteredScripts.map(s => s.id)));
+    }
+  }
+
+  const alreadyAssignedIds = new Set(
+    [...selectedScripts].filter(id =>
+      existingAssignments.some(a => a.script_id === id && a.status !== 'done')
+    )
+  );
 
   async function handleAssign(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedEditor || !selectedScript) return;
+    if (!selectedEditor || selectedScripts.size === 0) return;
     setSaving(true);
     setError('');
     try {
-      const { error: err } = await supabase
-        .from('editor_assignments')
-        .insert({
-          script_id: selectedScript,
-          editor_name: selectedEditor,
-          status: 'assigned',
-          deadline: deadline || null,
-        });
+      const inserts = [...selectedScripts].map(scriptId => ({
+        script_id: scriptId,
+        editor_name: selectedEditor,
+        status: 'assigned',
+        deadline: deadline || null,
+      }));
+      const { error: err } = await supabase.from('editor_assignments').insert(inserts);
       if (err) throw new Error(err.message);
       onAssigned();
     } catch (err: any) {
@@ -407,141 +427,193 @@ function AssignModal({ editors, scripts, existingAssignments, onClose, onAssigne
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-900">Assign Script to Editor</h2>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[92vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 flex-shrink-0">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Assign Scripts to Editor</h2>
+            {selectedScripts.size > 0 && (
+              <p className="text-xs text-blue-600 font-semibold mt-0.5">{selectedScripts.size} script{selectedScripts.size > 1 ? 's' : ''} selected</p>
+            )}
+          </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
         </div>
 
-        <form onSubmit={handleAssign} className="p-6 space-y-5">
-          {error && <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-lg">{error}</div>}
+        <form onSubmit={handleAssign} className="flex flex-col flex-1 min-h-0">
+          <div className="overflow-y-auto flex-1 px-6 py-5 space-y-5">
+            {error && <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-lg">{error}</div>}
 
-          {/* Script Search */}
-          <div className="relative">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Select Script</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              <input
-                type="text"
-                placeholder={selectedScriptObj ? selectedScriptObj.title : 'Search scripts...'}
-                value={showScriptDropdown ? scriptSearch : (selectedScriptObj ? selectedScriptObj.title : '')}
-                onChange={e => { setScriptSearch(e.target.value); setShowScriptDropdown(true); if (!e.target.value) setSelectedScript(''); }}
-                onFocus={() => { setScriptSearch(''); setShowScriptDropdown(true); }}
-                onBlur={() => setTimeout(() => setShowScriptDropdown(false), 150)}
-                className="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              />
-              {selectedScript && (
-                <button
-                  type="button"
-                  onClick={() => { setSelectedScript(''); setScriptSearch(''); }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-            {showScriptDropdown && (
-              <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
-                {filteredScripts.length === 0 ? (
-                  <div className="px-4 py-3 text-sm text-gray-400">No scripts found</div>
-                ) : (
-                  filteredScripts.map(s => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onMouseDown={() => { setSelectedScript(s.id); setScriptSearch(''); setShowScriptDropdown(false); }}
-                      className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 transition ${selectedScript === s.id ? 'bg-blue-50' : ''}`}
-                    >
-                      <p className="text-sm font-medium text-gray-900 truncate">{s.title}</p>
-                      {(s.pod || s.client) && (
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          {[s.pod, s.client].filter(Boolean).join(' · ')}
-                        </p>
-                      )}
-                    </button>
-                  ))
+            {/* ── Scripts Section ──────────────────────────────── */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-semibold text-gray-700">Select Scripts</label>
+                {filteredScripts.length > 0 && (
+                  <button type="button" onClick={toggleAll} className="text-xs text-blue-600 hover:underline font-medium">
+                    {selectedScripts.size === filteredScripts.length ? 'Deselect all' : 'Select all'}
+                  </button>
                 )}
               </div>
-            )}
-            {alreadyAssigned && (
-              <p className="text-xs text-orange-600 mt-1.5 font-medium">
-                ⚠️ Already assigned to {alreadyAssigned.editor_name}
-              </p>
-            )}
-          </div>
 
-          {/* Deadline */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">
-              Due Date
-              <span className="text-gray-400 font-normal ml-1.5 text-xs">— when should this be delivered?</span>
-            </label>
-            <input
-              type="date"
-              min={todayStr}
-              value={deadline}
-              onChange={e => setDeadline(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"
-            />
-            {!deadline && (
-              <p className="text-xs text-gray-400 mt-1">Optional — set a date to get overdue alerts</p>
-            )}
-            {deadline && (() => {
-              const d = new Date(deadline);
-              const today = new Date(); today.setHours(0,0,0,0);
-              const diffDays = Math.round((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-              return (
-                <p className={`text-xs mt-1 font-medium ${diffDays <= 1 ? 'text-orange-600' : 'text-green-600'}`}>
-                  {diffDays === 0 ? '⚠ Due today' : diffDays === 1 ? '⚠ Due tomorrow' : `✓ ${diffDays} days to deliver`}
-                </p>
-              );
-            })()}
-          </div>
-
-          {/* Editor Select */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Select Editor</label>
-            <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
-              {editors.map(e => {
-                const count = editorWorkload[e.name] || 0;
-                return (
+              {/* Pod filter pills */}
+              <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
+                <button
+                  type="button"
+                  onClick={() => setFilterPod('All')}
+                  className={`text-xs font-semibold px-2.5 py-1 rounded-full transition ${filterPod === 'All' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                >
+                  All Pods
+                </button>
+                {pods.map(p => (
                   <button
-                    key={e.id}
+                    key={p.name}
                     type="button"
-                    onClick={() => setSelectedEditor(e.name)}
-                    className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition text-left ${
-                      selectedEditor === e.name
-                        ? 'border-blue-500 bg-blue-50 text-blue-700'
-                        : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                    onClick={() => setFilterPod(p.name)}
+                    className={`text-xs font-semibold px-2.5 py-1 rounded-full transition ${
+                      filterPod === p.name
+                        ? `text-white ${p.color === 'blue' ? 'bg-blue-600' : p.color === 'purple' ? 'bg-purple-600' : p.color === 'orange' ? 'bg-orange-500' : p.color === 'teal' ? 'bg-teal-600' : p.color === 'pink' ? 'bg-pink-500' : 'bg-green-600'}`
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                     }`}
                   >
-                    <div className={`w-7 h-7 rounded-full font-bold text-xs flex items-center justify-center flex-shrink-0 ${
-                      count === 0 ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
-                    }`}>
-                      {e.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate">{e.name}</p>
-                      <p className={`text-xs font-normal ${count === 0 ? 'text-green-600' : 'text-orange-600'}`}>
-                        {count === 0 ? 'Free' : `${count} video${count > 1 ? 's' : ''}`}
-                      </p>
-                    </div>
+                    {p.name} ({scripts.filter(s => s.pod === p.name).length})
                   </button>
+                ))}
+              </div>
+
+              {/* Search */}
+              <div className="relative mb-2">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search by title or client..."
+                  value={scriptSearch}
+                  onChange={e => setScriptSearch(e.target.value)}
+                  className="w-full pl-8 pr-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
+                {scriptSearch && (
+                  <button type="button" onClick={() => setScriptSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Script list with checkboxes */}
+              <div className="border border-gray-200 rounded-xl overflow-hidden max-h-52 overflow-y-auto">
+                {filteredScripts.length === 0 ? (
+                  <div className="px-4 py-6 text-sm text-gray-400 text-center">No scripts found</div>
+                ) : (
+                  filteredScripts.map((s, i) => {
+                    const isChecked = selectedScripts.has(s.id);
+                    const isAlreadyAssigned = existingAssignments.some(a => a.script_id === s.id && a.status !== 'done');
+                    return (
+                      <label
+                        key={s.id}
+                        className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition ${
+                          isChecked ? 'bg-blue-50' : i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
+                        } hover:bg-blue-50/60 border-b border-gray-100 last:border-b-0`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleScript(s.id)}
+                          className="w-4 h-4 rounded accent-blue-600 flex-shrink-0 cursor-pointer"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{s.title}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            {s.pod && <span className="text-xs text-gray-400">{s.pod}</span>}
+                            {s.pod && s.client && <span className="text-gray-300 text-xs">·</span>}
+                            {s.client && <span className="text-xs text-teal-600 font-medium">{s.client}</span>}
+                          </div>
+                        </div>
+                        {isAlreadyAssigned && (
+                          <span className="text-xs text-orange-500 font-medium flex-shrink-0">assigned</span>
+                        )}
+                        {isChecked && <div className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />}
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+              {alreadyAssignedIds.size > 0 && (
+                <p className="text-xs text-orange-600 mt-1.5 font-medium">
+                  ⚠ {alreadyAssignedIds.size} selected script{alreadyAssignedIds.size > 1 ? 's are' : ' is'} already assigned — a new assignment will be added
+                </p>
+              )}
+            </div>
+
+            {/* ── Due Date ─────────────────────────────────────── */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                Due Date
+                <span className="text-gray-400 font-normal ml-1.5 text-xs">— when should this be delivered?</span>
+              </label>
+              <input
+                type="date"
+                min={todayStr}
+                value={deadline}
+                onChange={e => setDeadline(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"
+              />
+              {!deadline ? (
+                <p className="text-xs text-gray-400 mt-1">Optional — set a date to get overdue alerts</p>
+              ) : (() => {
+                const d = new Date(deadline);
+                const today = new Date(); today.setHours(0,0,0,0);
+                const diffDays = Math.round((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                return (
+                  <p className={`text-xs mt-1 font-medium ${diffDays <= 1 ? 'text-orange-600' : 'text-green-600'}`}>
+                    {diffDays === 0 ? '⚠ Due today' : diffDays === 1 ? '⚠ Due tomorrow' : `✓ ${diffDays} days to deliver`}
+                  </p>
                 );
-              })}
+              })()}
+            </div>
+
+            {/* ── Editor Select ─────────────────────────────────── */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Select Editor</label>
+              <div className="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
+                {editors.map(e => {
+                  const count = editorWorkload[e.name] || 0;
+                  return (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={() => setSelectedEditor(e.name)}
+                      className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition text-left ${
+                        selectedEditor === e.name
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className={`w-7 h-7 rounded-full font-bold text-xs flex items-center justify-center flex-shrink-0 ${
+                        count === 0 ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                      }`}>
+                        {e.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate">{e.name}</p>
+                        <p className={`text-xs font-normal ${count === 0 ? 'text-green-600' : 'text-orange-600'}`}>
+                          {count === 0 ? 'Free' : `${count} video${count > 1 ? 's' : ''}`}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
-          <div className="flex gap-3 pt-2">
+          {/* Footer — always visible */}
+          <div className="px-6 py-4 border-t border-gray-100 flex gap-3 flex-shrink-0">
             <button type="button" onClick={onClose} className="flex-1 border border-gray-300 text-gray-700 font-medium py-2.5 px-4 rounded-lg hover:bg-gray-50 transition">
               Cancel
             </button>
             <button
               type="submit"
-              disabled={saving || !selectedEditor || !selectedScript}
+              disabled={saving || !selectedEditor || selectedScripts.size === 0}
               className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-medium py-2.5 px-4 rounded-lg transition"
             >
-              {saving ? 'Assigning...' : 'Assign'}
+              {saving ? 'Assigning...' : selectedScripts.size > 1 ? `Assign ${selectedScripts.size} Scripts` : 'Assign Script'}
             </button>
           </div>
         </form>
