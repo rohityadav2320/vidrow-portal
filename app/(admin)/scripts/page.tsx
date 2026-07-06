@@ -51,6 +51,7 @@ export default function ScriptsPage() {
   const [filterPod, setFilterPod]       = useState('All');
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterClient, setFilterClient] = useState('All');
+  const [filterBatch, setFilterBatch]   = useState('All');
   const [search, setSearch]             = useState('');
 
   // Inline edit
@@ -246,6 +247,22 @@ export default function ScriptsPage() {
     }
   }
 
+  // ── Batch helpers ────────────────────────────────────────────────────────
+  function extractBatch(title: string): string | null {
+    const match = title.match(/(?:^|_)(Batch[^_]+)(?:_|$)/i);
+    return match ? match[1] : null;
+  }
+
+  // Batches available for the currently selected client (or all scripts if client=All)
+  const clientScripts = filterClient === 'All' ? scripts : scripts.filter(s => s.client === filterClient);
+  const activeBatches = [...new Set(clientScripts.map(s => extractBatch(s.title)).filter(Boolean))] as string[];
+  // Sort batches: extract numeric part for natural sort
+  activeBatches.sort((a, b) => {
+    const numA = parseInt(a.replace(/\D/g, '') || '0');
+    const numB = parseInt(b.replace(/\D/g, '') || '0');
+    return numA - numB || a.localeCompare(b);
+  });
+
   const overdueCount = scripts.filter(s => {
     const status = getRealStatus(s.id);
     if (status === 'done') return false;
@@ -266,7 +283,8 @@ export default function ScriptsPage() {
       }
       return getRealStatus(s.id) === filterStatus;
     })
-    .filter(s => filterClient === 'All' || s.client === filterClient);
+    .filter(s => filterClient === 'All' || s.client === filterClient)
+    .filter(s => filterBatch === 'All' || extractBatch(s.title) === filterBatch);
 
   const activeClients = [...new Set(scripts.map(s => s.client).filter(Boolean))] as string[];
 
@@ -414,12 +432,26 @@ export default function ScriptsPage() {
         {activeClients.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-gray-400 font-medium w-10">Client</span>
-            <button onClick={() => setFilterClient('All')} className={`text-xs font-semibold px-3 py-1.5 rounded-full transition ${filterClient === 'All' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>All</button>
+            <button onClick={() => { setFilterClient('All'); setFilterBatch('All'); }} className={`text-xs font-semibold px-3 py-1.5 rounded-full transition ${filterClient === 'All' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>All</button>
             {activeClients.map(c => (
-              <button key={c} onClick={() => setFilterClient(c)} className={`text-xs font-semibold px-3 py-1.5 rounded-full transition ${filterClient === c ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              <button key={c} onClick={() => { setFilterClient(c); setFilterBatch('All'); }} className={`text-xs font-semibold px-3 py-1.5 rounded-full transition ${filterClient === c ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                 {c} ({scripts.filter(s => s.client === c).length})
               </button>
             ))}
+          </div>
+        )}
+        {activeBatches.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-gray-400 font-medium w-10">Batch</span>
+            <button onClick={() => setFilterBatch('All')} className={`text-xs font-semibold px-3 py-1.5 rounded-full transition ${filterBatch === 'All' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>All</button>
+            {activeBatches.map(batch => {
+              const batchCount = clientScripts.filter(s => extractBatch(s.title) === batch).length;
+              return (
+                <button key={batch} onClick={() => setFilterBatch(batch)} className={`text-xs font-semibold px-3 py-1.5 rounded-full transition ${filterBatch === batch ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                  {batch} ({batchCount})
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -431,7 +463,7 @@ export default function ScriptsPage() {
         <div className="bg-white rounded-xl border border-dashed border-gray-300 py-16 text-center">
           <p className="text-gray-400 font-medium">No scripts found</p>
           {filterStatus === 'overdue' && <p className="text-green-500 text-sm mt-2 font-medium">✓ No overdue scripts!</p>}
-          <button onClick={() => { setFilterPod('All'); setFilterStatus('All'); setFilterClient('All'); }} className="mt-3 text-blue-600 text-sm font-medium hover:underline">Clear filters</button>
+          <button onClick={() => { setFilterPod('All'); setFilterStatus('All'); setFilterClient('All'); setFilterBatch('All'); }} className="mt-3 text-blue-600 text-sm font-medium hover:underline">Clear filters</button>
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow overflow-x-auto">
