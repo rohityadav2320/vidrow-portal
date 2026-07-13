@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Plus, Check, RefreshCw, PenLine, X, ArrowRight, Video, UserCheck, AlertTriangle, Clock, Upload, ChevronDown, ChevronUp, Download, FileSpreadsheet } from 'lucide-react';
+import { Plus, Check, RefreshCw, PenLine, X, ArrowRight, Video, UserCheck, AlertTriangle, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface Script {
   id: string;
@@ -27,71 +27,25 @@ interface Editor { id: string; name: string; unavailable?: boolean; activeCount?
 interface Client { id: string; name: string; }
 interface Pod    { id: string; name: string; color: string; }
 
-interface SheetPreviewRow {
-  title: string;
-  scriptLabel: string;
-  content: Record<string, string>;
-  existsInDB: boolean;
-  existingId?: string;
-}
-
-// Parse CSV (handles quoted fields with commas/newlines)
-function parseCSV(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cell = '';
-  let inQuotes = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === '"') {
-      if (inQuotes && text[i + 1] === '"') { cell += '"'; i++; }
-      else { inQuotes = !inQuotes; }
-    } else if (ch === ',' && !inQuotes) {
-      row.push(cell.trim()); cell = '';
-    } else if ((ch === '\n' || (ch === '\r' && text[i + 1] === '\n')) && !inQuotes) {
-      if (ch === '\r') i++;
-      row.push(cell.trim()); rows.push(row); row = []; cell = '';
-    } else {
-      cell += ch;
-    }
-  }
-  if (cell || row.length) { row.push(cell.trim()); rows.push(row); }
-  return rows.filter(r => r.some(c => c));
-}
-
-function parseSheetCSV(csvText: string, client: string, batchNo: string): Omit<SheetPreviewRow, 'existsInDB' | 'existingId'>[] {
-  const rows = parseCSV(csvText);
-  if (rows.length < 2) return [];
-  // Row 0: ["Script no", "Script 1", "Script 2", ...]
-  // Col 0: field names. Each col from 1 = one script
-  const headers = rows[0];
-  const results: Omit<SheetPreviewRow, 'existsInDB' | 'existingId'>[] = [];
-  for (let col = 1; col < headers.length; col++) {
-    const scriptLabel = (headers[col] || '').trim();
-    if (!scriptLabel) continue;
-    // Build canonical title: Client_BatchX_Script1
-    const scriptId = scriptLabel.replace(/\s+/g, ''); // "Script1"
-    const titleParts = [client.trim(), batchNo.trim() ? `Batch${batchNo.trim()}` : '', scriptId].filter(Boolean);
-    const title = titleParts.join('_');
-    // Build content map from all data rows
-    const content: Record<string, string> = {};
-    for (let r = 1; r < rows.length; r++) {
-      const fieldName = (rows[r][0] || '').trim();
-      const value = (rows[r][col] || '').trim();
-      if (fieldName && value) content[fieldName] = value;
-    }
-    results.push({ title, scriptLabel, content });
-  }
-  return results;
-}
+const SCRIPT_FIELDS = [
+  { key: 'communication',   label: 'Main Communication',  placeholder: 'Core message of the script…',         span: 2 },
+  { key: 'targetPersonas',  label: 'Target Personas',     placeholder: 'Who is this for?',                    span: 1 },
+  { key: 'painPoint',       label: 'Pain Point',          placeholder: 'What problem does it address?',       span: 1 },
+  { key: 'format',          label: 'Format',              placeholder: 'e.g. Object talking, Podcast…',       span: 1 },
+  { key: 'actor',           label: 'Actor',               placeholder: 'Who will appear in the video?',       span: 1 },
+  { key: 'referenceVideo',  label: 'Reference Video',     placeholder: 'YouTube link or description…',        span: 2 },
+  { key: 'hook1',           label: 'Hook 1',              placeholder: 'First hook option…',                  span: 2 },
+  { key: 'hook2',           label: 'Hook 2',              placeholder: 'Second hook option…',                 span: 2 },
+  { key: 'hook3',           label: 'Hook 3',              placeholder: 'Third hook option…',                  span: 2 },
+  { key: 'story',           label: 'Story / Body',        placeholder: 'Main script body…',                   span: 2 },
+  { key: 'bridge',          label: 'Bridge',              placeholder: 'Transition / bridge content…',        span: 2 },
+  { key: 'cta',             label: 'CTA',                 placeholder: 'Call to action…',                     span: 2 },
+];
 
 const POD_COLOR_MAP: Record<string, string> = {
-  blue:   'bg-blue-100 text-blue-700',
-  purple: 'bg-purple-100 text-purple-700',
-  orange: 'bg-orange-100 text-orange-700',
-  teal:   'bg-teal-100 text-teal-700',
-  pink:   'bg-pink-100 text-pink-700',
-  green:  'bg-green-100 text-green-700',
+  blue: 'bg-blue-100 text-blue-700', purple: 'bg-purple-100 text-purple-700',
+  orange: 'bg-orange-100 text-orange-700', teal: 'bg-teal-100 text-teal-700',
+  pink: 'bg-pink-100 text-pink-700', green: 'bg-green-100 text-green-700',
 };
 
 function daysLabel(deadline: string): { label: string; overdue: boolean } {
@@ -110,49 +64,43 @@ function getDisplayStatus(script: Script): string {
   if (ws === 'written')    return 'written';
   if (ws === 'production') return 'production';
   if (ws === 'editing') {
-    if (!script.assignment) return 'with_editor';
-    if (script.assignment.status === 'done') return 'done';
+    if (script.assignment?.status === 'done') return 'done';
     return 'with_editor';
   }
   return 'pending';
 }
 
 export default function WritingPage() {
-  const [scripts, setScripts]   = useState<Script[]>([]);
-  const [editors, setEditors]   = useState<Editor[]>([]);
-  const [clients, setClients]   = useState<Client[]>([]);
-  const [pods, setPods]         = useState<Pod[]>([]);
+  const [scripts, setScripts]     = useState<Script[]>([]);
+  const [editors, setEditors]     = useState<Editor[]>([]);
+  const [clients, setClients]     = useState<Client[]>([]);
+  const [pods, setPods]           = useState<Pod[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const [filterPod, setFilterPod]       = useState('All');
   const [filterStatus, setFilterStatus] = useState('All');
 
   // Create form
-  const [showForm, setShowForm]   = useState(false);
-  const [saving, setSaving]       = useState(false);
-  const [formData, setFormData]   = useState({ batchNo: '', scriptNos: [''], pod: '', client: '' });
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving]     = useState(false);
+  const [formData, setFormData] = useState({ batchNo: '', scriptNos: [''], pod: '', client: '' });
   const [newClient, setNewClient] = useState('');
 
-  // Assign modal
-  const [assignScript, setAssignScript] = useState<Script | null>(null);
-  const [assignEditor, setAssignEditor] = useState('');
+  // "Mark Written" modal with script details
+  const [writtenModal, setWrittenModal]   = useState<Script | null>(null);
+  const [scriptFields, setScriptFields]   = useState<Record<string, string>>({});
+  const [writtenSaving, setWrittenSaving] = useState(false);
+
+  // Assign to Editor modal
+  const [assignScript, setAssignScript]   = useState<Script | null>(null);
+  const [assignEditor, setAssignEditor]   = useState('');
   const [assignDeadline, setAssignDeadline] = useState('');
   const [assignSaving, setAssignSaving]   = useState(false);
 
-  const [actionId, setActionId] = useState<string | null>(null);
-
-  // Sheet upload
-  const [showUpload, setShowUpload]       = useState(false);
-  const [uploadClient, setUploadClient]   = useState('');
-  const [uploadBatch, setUploadBatch]     = useState('');
-  const [uploadPod, setUploadPod]         = useState('');
-  const [uploadPreview, setUploadPreview] = useState<SheetPreviewRow[]>([]);
-  const [uploading, setUploading]         = useState(false);
-  const [uploadResult, setUploadResult]   = useState<{ created: number; updated: number } | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-
   // Expanded content rows
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const [actionId, setActionId] = useState<string | null>(null);
 
   useEffect(() => { loadData(); }, []);
 
@@ -171,24 +119,16 @@ export default function WritingPage() {
       supabase.from('pods').select('*').order('created_at'),
     ]);
 
-    // Map latest assignment per script + compute per-editor workload
     const assignmentMap: Record<string, Assignment> = {};
     const workload: Record<string, number> = {};
     for (const a of (assignmentsRes.data || [])) {
       if (!assignmentMap[a.script_id]) {
         assignmentMap[a.script_id] = { id: a.id, editor_name: a.editor_name, status: a.status, deadline: a.deadline, completed_at: a.completed_at };
       }
-      if (a.status !== 'done') {
-        workload[a.editor_name] = (workload[a.editor_name] || 0) + 1;
-      }
+      if (a.status !== 'done') workload[a.editor_name] = (workload[a.editor_name] || 0) + 1;
     }
 
-    const enriched: Script[] = (scriptsRes.data || []).map(s => ({
-      ...s,
-      assignment: assignmentMap[s.id] || null,
-    }));
-
-    setScripts(enriched);
+    setScripts((scriptsRes.data || []).map(s => ({ ...s, assignment: assignmentMap[s.id] || null })));
     setEditors((editorsRes.data || []).map((e: any) => ({ ...e, activeCount: workload[e.name] || 0 })));
     setClients(clientsRes.data || []);
     setPods(podsRes.data || []);
@@ -210,15 +150,38 @@ export default function WritingPage() {
     setSaving(true);
     const rows = validNos.map(no => ({
       title: [formData.client, `Batch${formData.batchNo.trim()}`, `Script${no}`].filter(Boolean).join('_'),
-      pod: formData.pod,
-      client: formData.client || null,
-      status: 'pending' as const,
-      writing_status: 'writing',
+      pod: formData.pod, client: formData.client || null,
+      status: 'pending' as const, writing_status: 'writing',
     }));
     await supabase.from('scripts').insert(rows);
     setFormData({ batchNo: '', scriptNos: [''], pod: '', client: '' });
-    setShowForm(false);
-    setSaving(false);
+    setShowForm(false); setSaving(false);
+    await loadData();
+  }
+
+  function openWrittenModal(script: Script) {
+    setWrittenModal(script);
+    // Pre-fill if content already exists
+    const existing = script.script_content || {};
+    const prefilled: Record<string, string> = {};
+    SCRIPT_FIELDS.forEach(f => { prefilled[f.key] = existing[f.key] || ''; });
+    setScriptFields(prefilled);
+  }
+
+  async function saveWritten(skip = false) {
+    if (!writtenModal) return;
+    setWrittenSaving(true);
+    const content: Record<string, string> = {};
+    if (!skip) {
+      SCRIPT_FIELDS.forEach(f => { if (scriptFields[f.key]?.trim()) content[f.key] = scriptFields[f.key].trim(); });
+    }
+    await supabase.from('scripts').update({
+      writing_status: 'written',
+      ...(Object.keys(content).length > 0 ? { script_content: content } : {}),
+    }).eq('id', writtenModal.id);
+    setWrittenModal(null);
+    setScriptFields({});
+    setWrittenSaving(false);
     await loadData();
   }
 
@@ -233,100 +196,35 @@ export default function WritingPage() {
     if (!assignScript || !assignEditor) return;
     setAssignSaving(true);
     await Promise.all([
-      supabase.from('editor_assignments').insert({
-        script_id: assignScript.id,
-        editor_name: assignEditor,
-        status: 'assigned',
-        deadline: assignDeadline || null,
-      }),
+      supabase.from('editor_assignments').insert({ script_id: assignScript.id, editor_name: assignEditor, status: 'assigned', deadline: assignDeadline || null }),
       supabase.from('scripts').update({ writing_status: 'editing' }).eq('id', assignScript.id),
     ]);
-    setAssignScript(null);
-    setAssignEditor('');
-    setAssignDeadline('');
+    setAssignScript(null); setAssignEditor(''); setAssignDeadline('');
     setAssignSaving(false);
     await loadData();
   }
 
-  // Sheet upload handlers
-  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const text = await file.text();
-    const parsed = parseSheetCSV(text, uploadClient, uploadBatch);
-    if (!parsed.length) { alert('Could not parse the file. Make sure it\'s a CSV exported from Google Sheets.'); return; }
-    // Check which titles already exist in DB
-    const { data: existing } = await supabase.from('scripts').select('id, title').in('title', parsed.map(p => p.title));
-    const existingMap: Record<string, string> = {};
-    (existing || []).forEach((s: any) => { existingMap[s.title] = s.id; });
-    const preview: SheetPreviewRow[] = parsed.map(p => ({
-      ...p,
-      existsInDB: !!existingMap[p.title],
-      existingId: existingMap[p.title],
-    }));
-    setUploadPreview(preview);
-    e.target.value = '';
-  }
-
-  async function handleSheetUpload() {
-    if (!uploadPreview.length || !uploadPod) return;
-    setUploading(true);
-    let created = 0; let updated = 0;
-    const toCreate = uploadPreview.filter(p => !p.existsInDB);
-    const toUpdate = uploadPreview.filter(p => p.existsInDB);
-    if (toCreate.length) {
-      await supabase.from('scripts').insert(toCreate.map(p => ({
-        title: p.title,
-        client: uploadClient || null,
-        pod: uploadPod,
-        status: 'pending',
-        writing_status: 'written',
-        script_content: p.content,
-      })));
-      created = toCreate.length;
-    }
-    for (const p of toUpdate) {
-      await supabase.from('scripts').update({ script_content: p.content, writing_status: 'written' }).eq('id', p.existingId!);
-      updated++;
-    }
-    setUploadResult({ created, updated });
-    setUploadPreview([]);
-    setUploading(false);
-    await loadData();
-  }
-
-  function downloadTemplate() {
-    const fields = ['Communication', 'Target Personas', 'Pain Point', 'Format', 'Actor', 'Reference Video', 'Hook 1', 'Hook 2', 'Hook 3', 'Story', 'Bridge', 'CTA'];
-    const headers = ['Script no', 'Script 1', 'Script 2', 'Script 3'];
-    const rows = [headers, ...fields.map(f => [f, '', '', ''])];
-    const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'vidrow_script_template.csv'; a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  // Counts per stage
   const counts = {
-    writing:    scripts.filter(s => getDisplayStatus(s) === 'writing').length,
-    written:    scripts.filter(s => getDisplayStatus(s) === 'written').length,
-    production: scripts.filter(s => getDisplayStatus(s) === 'production').length,
+    writing:     scripts.filter(s => getDisplayStatus(s) === 'writing').length,
+    written:     scripts.filter(s => getDisplayStatus(s) === 'written').length,
+    production:  scripts.filter(s => getDisplayStatus(s) === 'production').length,
     with_editor: scripts.filter(s => getDisplayStatus(s) === 'with_editor').length,
-    done:       scripts.filter(s => getDisplayStatus(s) === 'done').length,
+    done:        scripts.filter(s => getDisplayStatus(s) === 'done').length,
   };
-
-  const STATUS_FILTERS = [
-    { val: 'All',        label: 'All' },
-    { val: 'writing',    label: '✍️ Writing' },
-    { val: 'written',    label: '✓ Written' },
-    { val: 'production', label: '🎬 Production' },
-    { val: 'with_editor',label: '👤 With Editor' },
-    { val: 'done',       label: '✅ Done' },
-  ];
 
   const filtered = scripts
     .filter(s => filterPod === 'All' || s.pod === filterPod)
     .filter(s => filterStatus === 'All' || getDisplayStatus(s) === filterStatus);
+
+  const stageBadge: Record<string, string> = {
+    writing: 'bg-amber-100 text-amber-700', written: 'bg-blue-100 text-blue-700',
+    production: 'bg-purple-100 text-purple-700', with_editor: 'bg-indigo-100 text-indigo-700',
+    done: 'bg-green-100 text-green-700',
+  };
+  const stageLabel: Record<string, string> = {
+    writing: '✍️ Writing', written: '✓ Written', production: '🎬 Production',
+    with_editor: '👤 With Editor', done: '✅ Done',
+  };
 
   return (
     <div className="p-8 pb-24">
@@ -340,148 +238,37 @@ export default function WritingPage() {
           <button onClick={loadData} className="p-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition">
             <RefreshCw className="w-4 h-4" />
           </button>
-          <button onClick={() => { setShowUpload(!showUpload); setShowForm(false); setUploadPreview([]); setUploadResult(null); }}
-            className="flex items-center gap-2 border border-green-300 text-green-700 bg-green-50 hover:bg-green-100 text-sm font-medium py-2 px-4 rounded-lg transition">
-            <FileSpreadsheet className="w-4 h-4" />Upload Sheet
-          </button>
-          <button onClick={() => { setShowForm(!showForm); setShowUpload(false); }} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-4 rounded-lg transition">
+          <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-4 rounded-lg transition">
             <Plus className="w-4 h-4" />New Tickets
           </button>
         </div>
       </div>
 
-      {/* Pipeline counter bar */}
+      {/* Pipeline bar */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-6 py-4 mb-6">
-        <div className="flex items-center gap-0">
+        <div className="flex items-center gap-0 flex-wrap">
           {[
-            { key: 'writing',     label: 'Writing',     count: counts.writing,     dot: 'bg-amber-400',  active: filterStatus === 'writing' },
-            { key: 'written',     label: 'Written',     count: counts.written,     dot: 'bg-blue-400',   active: filterStatus === 'written' },
-            { key: 'production',  label: 'Production',  count: counts.production,  dot: 'bg-purple-400', active: filterStatus === 'production' },
-            { key: 'with_editor', label: 'With Editor', count: counts.with_editor, dot: 'bg-indigo-400', active: filterStatus === 'with_editor' },
-            { key: 'done',        label: 'Done',        count: counts.done,        dot: 'bg-green-400',  active: filterStatus === 'done' },
+            { key: 'writing', label: 'Writing', count: counts.writing, dot: 'bg-amber-400' },
+            { key: 'written', label: 'Written', count: counts.written, dot: 'bg-blue-400' },
+            { key: 'production', label: 'Production', count: counts.production, dot: 'bg-purple-400' },
+            { key: 'with_editor', label: 'With Editor', count: counts.with_editor, dot: 'bg-indigo-400' },
+            { key: 'done', label: 'Done', count: counts.done, dot: 'bg-green-400' },
           ].map((stage, i) => (
             <div key={stage.key} className="flex items-center">
-              <button
-                onClick={() => setFilterStatus(stage.key === filterStatus ? 'All' : stage.key)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${stage.active ? 'bg-gray-100' : 'hover:bg-gray-50'}`}
-              >
-                <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${stage.dot}`} />
+              <button onClick={() => setFilterStatus(stage.key === filterStatus ? 'All' : stage.key)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${filterStatus === stage.key ? 'bg-gray-100' : 'hover:bg-gray-50'}`}>
+                <span className={`w-2.5 h-2.5 rounded-full ${stage.dot}`} />
                 <span className="text-sm font-semibold text-gray-700">{stage.label}</span>
                 <span className={`text-sm font-bold ${stage.count > 0 ? 'text-gray-900' : 'text-gray-300'}`}>{stage.count}</span>
               </button>
               {i < 4 && <ArrowRight className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />}
             </div>
           ))}
-          <div className="ml-auto text-sm text-gray-400 font-medium">{scripts.length} total tickets</div>
+          <div className="ml-auto text-sm text-gray-400 font-medium">{scripts.length} total</div>
         </div>
       </div>
 
       {/* Create Form */}
-      {/* ── Upload Sheet Panel ───────────────────────────────────────────── */}
-      {showUpload && (
-        <div className="bg-white rounded-xl border border-green-200 shadow-sm p-5 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="font-bold text-gray-900">Upload Google Sheet</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Export your sheet as CSV (File → Download → CSV), then upload here</p>
-            </div>
-            <button onClick={downloadTemplate} className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition">
-              <Download className="w-3.5 h-3.5" />Download Template
-            </button>
-          </div>
-
-          {uploadResult ? (
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center justify-between">
-              <div>
-                <p className="font-semibold text-green-800">Upload complete!</p>
-                <p className="text-sm text-green-600 mt-0.5">{uploadResult.created} scripts created · {uploadResult.updated} scripts updated with content</p>
-              </div>
-              <button onClick={() => { setUploadResult(null); setShowUpload(false); }} className="text-green-700 border border-green-300 text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-green-100 transition">Done</button>
-            </div>
-          ) : (
-            <>
-              {/* Config row */}
-              <div className="flex items-end gap-3 mb-4">
-                <div className="w-36">
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Batch No. *</label>
-                  <input type="text" value={uploadBatch} onChange={e => setUploadBatch(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-green-500" placeholder="e.g. Batch1" />
-                </div>
-                <div className="w-44">
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Pod *</label>
-                  <select value={uploadPod} onChange={e => setUploadPod(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-green-500">
-                    <option value="">Select pod...</option>
-                    {pods.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-                  </select>
-                </div>
-                <div className="flex-1">
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Client</label>
-                  <select value={uploadClient} onChange={e => setUploadClient(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-green-500">
-                    <option value="">No client</option>
-                    {clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">CSV File *</label>
-                  <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFileSelect} />
-                  <button type="button" onClick={() => fileRef.current?.click()}
-                    disabled={!uploadBatch.trim() || !uploadPod}
-                    className="flex items-center gap-2 border border-green-300 text-green-700 bg-green-50 hover:bg-green-100 disabled:opacity-40 text-sm font-medium py-2 px-4 rounded-lg transition">
-                    <Upload className="w-4 h-4" />Choose CSV
-                  </button>
-                </div>
-              </div>
-
-              {/* Preview */}
-              {uploadPreview.length > 0 && (
-                <div>
-                  <p className="text-sm font-semibold text-gray-700 mb-2">
-                    Preview — {uploadPreview.length} scripts found&nbsp;
-                    <span className="text-green-600">({uploadPreview.filter(p => !p.existsInDB).length} new)</span>
-                    {uploadPreview.some(p => p.existsInDB) && <span className="text-amber-600"> · ({uploadPreview.filter(p => p.existsInDB).length} will update existing)</span>}
-                  </p>
-                  <div className="border border-gray-200 rounded-xl overflow-hidden mb-4">
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50 border-b border-gray-100">
-                        <tr>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Script</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Title in Portal</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Fields</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-50">
-                        {uploadPreview.map((row, i) => (
-                          <tr key={i} className={row.existsInDB ? 'bg-amber-50/40' : ''}>
-                            <td className="px-3 py-2 font-medium text-gray-700">{row.scriptLabel}</td>
-                            <td className="px-3 py-2 text-gray-500 font-mono text-xs">{row.title}</td>
-                            <td className="px-3 py-2 text-gray-400 text-xs">{Object.keys(row.content).length} fields filled</td>
-                            <td className="px-3 py-2">
-                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${row.existsInDB ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
-                                {row.existsInDB ? 'Update' : 'Create'}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={handleSheetUpload} disabled={uploading || !uploadPod}
-                      className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white text-sm font-semibold py-2 px-5 rounded-lg transition">
-                      {uploading ? 'Uploading…' : `Confirm — Upload ${uploadPreview.length} Scripts`}
-                    </button>
-                    <button onClick={() => setUploadPreview([])} className="text-gray-500 text-sm font-medium py-2 px-4 rounded-lg hover:bg-gray-100 transition">Clear</button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
       {showForm && (
         <div className="bg-white rounded-xl border border-blue-200 shadow-sm p-5 mb-6">
           <h2 className="font-bold text-gray-900 mb-4">Create Tickets</h2>
@@ -516,7 +303,7 @@ export default function WritingPage() {
               </div>
             </div>
             <div className="mb-4">
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Script Numbers * <span className="font-normal text-gray-400">— one per row, press Enter to add next</span></label>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Script Numbers * <span className="font-normal text-gray-400">— press Enter to add next</span></label>
               <div className="space-y-1.5 max-h-40 overflow-y-auto">
                 {formData.scriptNos.map((no, idx) => (
                   <div key={idx} className="flex items-center gap-2">
@@ -571,10 +358,8 @@ export default function WritingPage() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-gray-400 font-medium w-10">Stage</span>
-          {STATUS_FILTERS.map(s => (
-            <button key={s.val} onClick={() => setFilterStatus(s.val)} className={`text-xs font-semibold px-3 py-1.5 rounded-full transition ${filterStatus === s.val ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-              {s.label}
-            </button>
+          {[{ val: 'All', label: 'All' }, { val: 'writing', label: '✍️ Writing' }, { val: 'written', label: '✓ Written' }, { val: 'production', label: '🎬 Production' }, { val: 'with_editor', label: '👤 With Editor' }, { val: 'done', label: '✅ Done' }].map(s => (
+            <button key={s.val} onClick={() => setFilterStatus(s.val)} className={`text-xs font-semibold px-3 py-1.5 rounded-full transition ${filterStatus === s.val ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{s.label}</button>
           ))}
         </div>
       </div>
@@ -596,10 +381,9 @@ export default function WritingPage() {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Script</th>
                 <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Client</th>
                 <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Pod</th>
-                <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Created</th>
                 <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Stage</th>
                 <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Editor / Deadline</th>
-                <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-56">Action</th>
+                <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-52">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -608,119 +392,108 @@ export default function WritingPage() {
                 const isActing = actionId === script.id;
                 const podObj = pods.find(p => p.name === script.pod);
                 const dl = script.assignment?.deadline ? daysLabel(script.assignment.deadline) : null;
-
-                const stageBadge: Record<string, string> = {
-                  writing:    'bg-amber-100 text-amber-700',
-                  written:    'bg-blue-100 text-blue-700',
-                  production: 'bg-purple-100 text-purple-700',
-                  with_editor:'bg-indigo-100 text-indigo-700',
-                  done:       'bg-green-100 text-green-700',
-                };
-                const stageLabel: Record<string, string> = {
-                  writing:    '✍️ Writing',
-                  written:    '✓ Written',
-                  production: '🎬 Production',
-                  with_editor:'👤 With Editor',
-                  done:       '✅ Done',
-                };
-
                 const isExpanded = expandedId === script.id;
                 const hasContent = script.script_content && Object.keys(script.script_content).length > 0;
+
                 return (
                   <React.Fragment key={script.id}>
-                  <tr className={`transition ${status === 'done' ? 'bg-green-50/20' : status === 'with_editor' ? 'bg-indigo-50/20' : 'hover:bg-gray-50'}`}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        {hasContent && (
-                          <button onClick={() => setExpandedId(isExpanded ? null : script.id)}
-                            className="text-gray-400 hover:text-gray-600 flex-shrink-0">
-                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                          </button>
-                        )}
-                        <p className={`text-sm font-medium ${status === 'done' ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{script.title}</p>
-                        {hasContent && !isExpanded && <span className="text-xs text-green-600 font-medium bg-green-50 px-1.5 py-0.5 rounded">has script</span>}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3">
-                      {script.client
-                        ? <span className="text-xs font-semibold px-2 py-1 rounded-full bg-teal-50 text-teal-700 border border-teal-200">{script.client}</span>
-                        : <span className="text-gray-300 text-xs">—</span>}
-                    </td>
-                    <td className="px-3 py-3">
-                      {script.pod
-                        ? <span className={`text-xs font-semibold px-2 py-1 rounded-full ${POD_COLOR_MAP[podObj?.color || 'blue'] || 'bg-gray-100 text-gray-700'}`}>{script.pod}</span>
-                        : <span className="text-gray-300 text-xs">—</span>}
-                    </td>
-                    <td className="px-3 py-3 text-xs text-gray-400 whitespace-nowrap">
-                      {new Date(script.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                    </td>
-                    <td className="px-3 py-3">
-                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${stageBadge[status] || 'bg-gray-100 text-gray-600'}`}>
-                        {stageLabel[status] || status}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3">
-                      {script.assignment ? (
-                        <div>
-                          <p className="text-xs font-semibold text-gray-700">{script.assignment.editor_name}</p>
-                          {dl && (
-                            <p className={`text-xs mt-0.5 flex items-center gap-1 ${dl.overdue ? 'text-red-500' : 'text-gray-400'}`}>
-                              {dl.overdue ? <AlertTriangle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                              {dl.label}
-                            </p>
+                    <tr className={`transition ${status === 'done' ? 'bg-green-50/20' : status === 'with_editor' ? 'bg-indigo-50/20' : isExpanded ? 'bg-gray-50' : 'hover:bg-gray-50'}`}>
+                      {/* Script title + expand */}
+                      <td className="px-4 py-3">
+                        <div className="flex items-start gap-2">
+                          {hasContent && (
+                            <button onClick={() => setExpandedId(isExpanded ? null : script.id)} className="mt-0.5 text-gray-400 hover:text-gray-700 flex-shrink-0 transition">
+                              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                            </button>
                           )}
-                          {status === 'done' && script.assignment.completed_at && (
-                            <p className="text-xs text-green-600 mt-0.5">Done {new Date(script.assignment.completed_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
-                          )}
+                          <div>
+                            <p className={`text-sm font-medium ${status === 'done' ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{script.title}</p>
+                            {hasContent && (
+                              <p className="text-xs text-gray-400 mt-0.5">
+                                {SCRIPT_FIELDS.filter(f => script.script_content![f.key]).map(f => f.label).slice(0, 3).join(' · ')}
+                                {SCRIPT_FIELDS.filter(f => script.script_content![f.key]).length > 3 && ' · …'}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      ) : <span className="text-gray-300 text-xs">—</span>}
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {/* Back */}
-                        {(status === 'written' || status === 'production') && (
-                          <button onClick={() => advance(script, status === 'written' ? 'writing' : 'written')} disabled={isActing}
-                            className="text-xs text-gray-400 hover:text-gray-600 font-medium px-2 py-1.5 rounded-lg hover:bg-gray-100 transition disabled:opacity-40">
-                            ← Undo
-                          </button>
-                        )}
-                        {/* Forward actions */}
-                        {status === 'writing' && (
-                          <button onClick={() => advance(script, 'written')} disabled={isActing}
-                            className="flex items-center gap-1 text-xs font-semibold text-white bg-blue-500 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition disabled:opacity-40">
-                            {isActing ? '…' : <><Check className="w-3.5 h-3.5" />Mark Written</>}
-                          </button>
-                        )}
-                        {status === 'written' && (
-                          <button onClick={() => advance(script, 'production')} disabled={isActing}
-                            className="flex items-center gap-1 text-xs font-semibold text-white bg-purple-500 hover:bg-purple-600 px-3 py-1.5 rounded-lg transition disabled:opacity-40">
-                            {isActing ? '…' : <><Video className="w-3.5 h-3.5" />Send to Production</>}
-                          </button>
-                        )}
-                        {status === 'production' && (
-                          <button onClick={() => { setAssignScript(script); setAssignEditor(''); setAssignDeadline(''); }}
-                            className="flex items-center gap-1 text-xs font-semibold text-white bg-indigo-500 hover:bg-indigo-600 px-3 py-1.5 rounded-lg transition">
-                            <UserCheck className="w-3.5 h-3.5" />Assign to Editor
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                  {/* Expandable script content */}
-                  {isExpanded && hasContent && (
-                    <tr key={`${script.id}-content`} className="bg-gray-50/80">
-                      <td colSpan={7} className="px-6 py-4">
-                        <div className="grid grid-cols-2 gap-x-8 gap-y-3">
-                          {Object.entries(script.script_content!).map(([field, value]) => (
-                            <div key={field} className={Object.keys(script.script_content!).indexOf(field) < 6 ? '' : 'col-span-2'}>
-                              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-0.5">{field}</p>
-                              <p className="text-sm text-gray-700 whitespace-pre-wrap">{value}</p>
-                            </div>
-                          ))}
+                      </td>
+                      {/* Client */}
+                      <td className="px-3 py-3">
+                        {script.client ? <span className="text-xs font-semibold px-2 py-1 rounded-full bg-teal-50 text-teal-700 border border-teal-200">{script.client}</span> : <span className="text-gray-300 text-xs">—</span>}
+                      </td>
+                      {/* Pod */}
+                      <td className="px-3 py-3">
+                        {script.pod ? <span className={`text-xs font-semibold px-2 py-1 rounded-full ${POD_COLOR_MAP[podObj?.color || 'blue'] || 'bg-gray-100 text-gray-700'}`}>{script.pod}</span> : <span className="text-gray-300 text-xs">—</span>}
+                      </td>
+                      {/* Stage */}
+                      <td className="px-3 py-3">
+                        <span className={`text-xs font-semibold px-2 py-1 rounded-full ${stageBadge[status] || 'bg-gray-100 text-gray-600'}`}>{stageLabel[status] || status}</span>
+                      </td>
+                      {/* Editor / deadline */}
+                      <td className="px-3 py-3">
+                        {script.assignment ? (
+                          <div>
+                            <p className="text-xs font-semibold text-gray-700">{script.assignment.editor_name}</p>
+                            {dl && (
+                              <p className={`text-xs mt-0.5 flex items-center gap-1 ${dl.overdue ? 'text-red-500' : 'text-gray-400'}`}>
+                                {dl.overdue ? <AlertTriangle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}{dl.label}
+                              </p>
+                            )}
+                            {status === 'done' && script.assignment.completed_at && (
+                              <p className="text-xs text-green-600 mt-0.5">Done {new Date(script.assignment.completed_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
+                            )}
+                          </div>
+                        ) : <span className="text-gray-300 text-xs">—</span>}
+                      </td>
+                      {/* Actions */}
+                      <td className="px-3 py-3">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {(status === 'written' || status === 'production') && (
+                            <button onClick={() => advance(script, status === 'written' ? 'writing' : 'written')} disabled={isActing}
+                              className="text-xs text-gray-400 hover:text-gray-600 font-medium px-2 py-1.5 rounded-lg hover:bg-gray-100 transition disabled:opacity-40">← Undo</button>
+                          )}
+                          {status === 'writing' && (
+                            <button onClick={() => openWrittenModal(script)}
+                              className="flex items-center gap-1 text-xs font-semibold text-white bg-blue-500 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition">
+                              <Check className="w-3.5 h-3.5" />Mark Written
+                            </button>
+                          )}
+                          {status === 'written' && (
+                            <button onClick={() => advance(script, 'production')} disabled={isActing}
+                              className="flex items-center gap-1 text-xs font-semibold text-white bg-purple-500 hover:bg-purple-600 px-3 py-1.5 rounded-lg transition disabled:opacity-40">
+                              {isActing ? '…' : <><Video className="w-3.5 h-3.5" />Send to Production</>}
+                            </button>
+                          )}
+                          {status === 'production' && (
+                            <button onClick={() => { setAssignScript(script); setAssignEditor(''); setAssignDeadline(''); }}
+                              className="flex items-center gap-1 text-xs font-semibold text-white bg-indigo-500 hover:bg-indigo-600 px-3 py-1.5 rounded-lg transition">
+                              <UserCheck className="w-3.5 h-3.5" />Assign to Editor
+                            </button>
+                          )}
+                          {/* Edit script details if already written */}
+                          {(status === 'written' || status === 'production' || status === 'with_editor') && (
+                            <button onClick={() => openWrittenModal(script)} title="Edit script details"
+                              className="text-xs text-gray-400 hover:text-blue-600 font-medium px-2 py-1.5 rounded-lg hover:bg-blue-50 transition">✏️</button>
+                          )}
                         </div>
                       </td>
                     </tr>
-                  )}
+
+                    {/* Expanded script content */}
+                    {isExpanded && hasContent && (
+                      <tr className="bg-blue-50/30 border-b border-blue-100">
+                        <td colSpan={6} className="px-6 py-5">
+                          <div className="grid grid-cols-2 gap-x-10 gap-y-4">
+                            {SCRIPT_FIELDS.filter(f => script.script_content![f.key]).map(f => (
+                              <div key={f.key} className={f.span === 2 ? 'col-span-2' : ''}>
+                                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{f.label}</p>
+                                <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{script.script_content![f.key]}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
                   </React.Fragment>
                 );
               })}
@@ -729,7 +502,54 @@ export default function WritingPage() {
         </div>
       )}
 
-      {/* Assign to Editor Modal */}
+      {/* ── Mark Written Modal ─────────────────────────────────────────────── */}
+      {writtenModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-8">
+            <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100">
+              <div>
+                <h3 className="font-bold text-gray-900 text-lg">Mark Written — Add Script Details</h3>
+                <p className="text-xs text-gray-400 mt-0.5 font-mono">{writtenModal.title}</p>
+              </div>
+              <button onClick={() => setWrittenModal(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="px-6 py-5">
+              <p className="text-sm text-gray-500 mb-5">Fill in what you know — all fields are optional. This will show under the script so the team knows what to produce.</p>
+              <div className="grid grid-cols-2 gap-4">
+                {SCRIPT_FIELDS.map(f => (
+                  <div key={f.key} className={f.span === 2 ? 'col-span-2' : ''}>
+                    <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">{f.label}</label>
+                    <textarea
+                      value={scriptFields[f.key] || ''}
+                      onChange={e => setScriptFields(prev => ({ ...prev, [f.key]: e.target.value }))}
+                      placeholder={f.placeholder}
+                      rows={f.span === 2 ? 3 : 2}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none placeholder-gray-300"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="px-6 pb-6 flex gap-3">
+              <button onClick={() => saveWritten(false)} disabled={writtenSaving}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-semibold py-2.5 rounded-xl transition">
+                {writtenSaving ? 'Saving…' : '✓ Save & Mark Written'}
+              </button>
+              <button onClick={() => saveWritten(true)} disabled={writtenSaving}
+                className="border border-gray-200 text-gray-600 font-semibold py-2.5 px-5 rounded-xl hover:bg-gray-50 transition text-sm">
+                Skip details
+              </button>
+              <button onClick={() => setWrittenModal(null)} className="border border-gray-200 text-gray-500 font-semibold py-2.5 px-4 rounded-xl hover:bg-gray-50 transition text-sm">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Assign to Editor Modal ─────────────────────────────────────────── */}
       {assignScript && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
@@ -755,9 +575,7 @@ export default function WritingPage() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className={`truncate font-semibold ${isSelected ? 'text-indigo-700' : 'text-gray-800'}`}>{e.name}</p>
-                          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${loadColor}`}>
-                            {count === 0 ? 'Free' : `${count} active`}
-                          </span>
+                          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${loadColor}`}>{count === 0 ? 'Free' : `${count} active`}</span>
                         </div>
                       </button>
                     );
@@ -775,9 +593,7 @@ export default function WritingPage() {
                 className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-semibold py-2.5 rounded-xl transition">
                 {assignSaving ? 'Assigning…' : 'Assign'}
               </button>
-              <button onClick={() => setAssignScript(null)} className="flex-1 border border-gray-200 text-gray-600 font-semibold py-2.5 rounded-xl hover:bg-gray-50 transition">
-                Cancel
-              </button>
+              <button onClick={() => setAssignScript(null)} className="flex-1 border border-gray-200 text-gray-600 font-semibold py-2.5 rounded-xl hover:bg-gray-50 transition">Cancel</button>
             </div>
           </div>
         </div>
