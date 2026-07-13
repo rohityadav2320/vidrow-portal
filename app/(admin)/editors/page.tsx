@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Trash2, Users, ChevronDown, ChevronUp, CheckCircle, Clock, Calendar, TrendingUp, Download, Pencil, Check, X, Moon, Sun } from 'lucide-react';
+import { Trash2, Users, ChevronDown, ChevronUp, CheckCircle, Clock, Calendar, TrendingUp, Download, Pencil, Check, X, Moon, Sun, CalendarCheck } from 'lucide-react';
 import type { Script } from '@/lib/types';
 
 interface Editor {
@@ -13,6 +13,15 @@ interface Editor {
   status: 'active' | 'inactive';
   unavailable: boolean;
   unavailable_reason: string | null;
+  created_at: string;
+}
+
+interface EditorBooking {
+  id: string;
+  editor_name: string;
+  booked_by_pod: string;
+  booked_for_date: string;
+  notes: string | null;
   created_at: string;
 }
 
@@ -54,6 +63,15 @@ export default function EditorsPage() {
   const [unavailableReason, setUnavailableReason] = useState('');
   const [unavailableSaving, setUnavailableSaving] = useState(false);
 
+  // Pre-booking
+  const [bookings, setBookings]             = useState<EditorBooking[]>([]);
+  const [pods, setPods]                     = useState<{ id: string; name: string }[]>([]);
+  const [bookingEditorId, setBookingEditorId] = useState<string | null>(null);
+  const [bookingPod, setBookingPod]         = useState('');
+  const [bookingDate, setBookingDate]       = useState('');
+  const [bookingNotes, setBookingNotes]     = useState('');
+  const [bookingSaving, setBookingSaving]   = useState(false);
+
   const [filterType, setFilterType] = useState<'all' | 'contract' | 'freelancer'>('all');
   const [expandedEditor, setExpandedEditor] = useState<string | null>(null);
   const [view, setView] = useState<'list' | 'monthly'>('list');
@@ -65,10 +83,13 @@ export default function EditorsPage() {
   useEffect(() => { loadData(); }, []);
 
   async function loadData() {
-    const [editorsRes, assignmentsRes, scriptsRes] = await Promise.all([
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [editorsRes, assignmentsRes, scriptsRes, bookingsRes, podsRes] = await Promise.all([
       supabase.from('editors').select('*').order('name'),
       supabase.from('editor_assignments').select('*').order('completed_at', { ascending: false }),
       supabase.from('scripts').select('*'),
+      supabase.from('editor_bookings').select('*').gte('booked_for_date', todayStr).order('booked_for_date'),
+      supabase.from('pods').select('id, name').order('created_at'),
     ]);
 
     const scriptsMap: Record<string, Script> = {};
@@ -81,7 +102,43 @@ export default function EditorsPage() {
 
     setEditors(editorsRes.data || []);
     setAssignments(enriched);
+    setBookings(bookingsRes.data || []);
+    setPods(podsRes.data || []);
     setIsLoading(false);
+  }
+
+  function formatBookingDate(dateStr: string) {
+    const date = new Date(dateStr + 'T00:00:00');
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const diff = Math.round((date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (diff === 0) return 'Today';
+    if (diff === 1) return 'Tomorrow';
+    return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  }
+
+  async function saveBooking(editorName: string) {
+    if (!bookingPod || !bookingDate) return;
+    setBookingSaving(true);
+    try {
+      const { data, error } = await supabase.from('editor_bookings').insert({
+        editor_name: editorName,
+        booked_by_pod: bookingPod,
+        booked_for_date: bookingDate,
+        notes: bookingNotes.trim() || null,
+      }).select().single();
+      if (error) throw error;
+      setBookings(prev => [...prev, data].sort((a, b) => a.booked_for_date.localeCompare(b.booked_for_date)));
+      setBookingEditorId(null);
+      setBookingPod('');
+      setBookingDate('');
+      setBookingNotes('');
+    } catch (err: any) { alert('Failed: ' + err.message); }
+    finally { setBookingSaving(false); }
+  }
+
+  async function cancelBooking(bookingId: string) {
+    await supabase.from('editor_bookings').delete().eq('id', bookingId);
+    setBookings(prev => prev.filter(b => b.id !== bookingId));
   }
 
   async function addEditor(e: React.FormEvent) {
@@ -598,42 +655,122 @@ export default function EditorsPage() {
                               <span className="text-blue-600 font-semibold">{thisMonthCount} this month</span>
                               {' · '}{all.length} total assigned
                             </p>
+                            {/* Pre-booking badges */}
+                            {bookings.filter(b => b.editor_name === editor.name).map(b => (
+                              <div key={b.id} className="flex items-center gap-1.5 mt-1">
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
+                                  <CalendarCheck className="w-3 h-3" />
+                                  📅 {b.booked_by_pod} · {formatBookingDate(b.booked_for_date)}
+                                  {b.notes && <span className="font-normal text-violet-500"> — {b.notes}</span>}
+                                  <button onClick={() => cancelBooking(b.id)} className="ml-0.5 text-violet-400 hover:text-violet-700">
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </span>
+                              </div>
+                            ))}
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           {all.length > 0 && (
                             <button
                               onClick={() => setExpandedEditor(isExpanded ? null : editor.id)}
-                              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium px-3 py-1.5 rounded-lg hover:bg-blue-50 transition"
+                              className="flex items-center gap-1 text-xs text-blue-600 font-medium px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 transition"
                             >
                               History
                               {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                             </button>
                           )}
+                          {/* Pre-book */}
+                          <button
+                            onClick={() => {
+                              const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+                              setBookingEditorId(editor.id);
+                              setBookingPod('');
+                              setBookingDate(tomorrow.toISOString().split('T')[0]);
+                              setBookingNotes('');
+                              setUnavailableEditId(null);
+                            }}
+                            title="Pre-book this editor"
+                            className={`p-2 rounded-lg border transition ${
+                              bookingEditorId === editor.id
+                                ? 'text-violet-600 bg-violet-100 border-violet-300'
+                                : 'text-gray-500 bg-gray-50 border-gray-200 hover:text-violet-600 hover:bg-violet-50 hover:border-violet-200'
+                            }`}
+                          >
+                            <CalendarCheck className="w-4 h-4" />
+                          </button>
                           {/* Unavailable toggle */}
                           <button
                             onClick={() => {
                               if (editor.unavailable) { markAvailable(editor.id); }
-                              else { setUnavailableEditId(editor.id); setUnavailableReason(''); }
+                              else { setUnavailableEditId(editor.id); setUnavailableReason(''); setBookingEditorId(null); }
                             }}
                             title={editor.unavailable ? 'Mark as Available' : 'Mark as Unavailable'}
-                            className={`p-2 rounded-lg transition ${editor.unavailable ? 'text-orange-500 bg-orange-50 hover:bg-orange-100' : 'text-gray-300 hover:text-orange-500 hover:bg-orange-50'}`}
+                            className={`p-2 rounded-lg border transition ${
+                              editor.unavailable
+                                ? 'text-orange-500 bg-orange-50 border-orange-200 hover:bg-orange-100'
+                                : 'text-gray-500 bg-gray-50 border-gray-200 hover:text-orange-500 hover:bg-orange-50 hover:border-orange-200'
+                            }`}
                           >
                             {editor.unavailable ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
                           </button>
                           <button
                             onClick={() => startEdit(editor)}
-                            className="text-gray-300 hover:text-blue-500 p-2 rounded-lg hover:bg-blue-50 transition"
+                            className="p-2 rounded-lg border border-gray-200 bg-gray-50 text-gray-500 hover:text-blue-600 hover:bg-blue-50 hover:border-blue-200 transition"
                             title="Edit editor"
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => removeEditor(editor.id)}
-                            className="text-gray-300 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition"
+                            className="p-2 rounded-lg border border-gray-200 bg-gray-50 text-gray-500 hover:text-red-500 hover:bg-red-50 hover:border-red-200 transition"
                             title="Delete editor"
                           >
                             <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Pre-booking form */}
+                    {!isEditing && bookingEditorId === editor.id && (
+                      <div className="px-5 py-4 bg-violet-50 border-t border-violet-100">
+                        <p className="text-xs font-semibold text-violet-700 mb-3">Pre-book {editor.name} for a specific pod & date</p>
+                        <div className="flex gap-2 mb-2">
+                          <select
+                            value={bookingPod}
+                            onChange={e => setBookingPod(e.target.value)}
+                            className="flex-1 px-3 py-2 border border-violet-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-violet-400 focus:outline-none"
+                          >
+                            <option value="">Which pod is booking?</option>
+                            {pods.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                          </select>
+                          <input
+                            type="date"
+                            value={bookingDate}
+                            min={new Date().toISOString().split('T')[0]}
+                            onChange={e => setBookingDate(e.target.value)}
+                            className="w-40 px-3 py-2 border border-violet-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-violet-400 focus:outline-none"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={bookingNotes}
+                            onChange={e => setBookingNotes(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveBooking(editor.name); if (e.key === 'Escape') setBookingEditorId(null); }}
+                            placeholder="Notes (optional) — e.g. Batch 21 urgent scripts..."
+                            className="flex-1 px-3 py-2 border border-violet-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-violet-400 focus:outline-none"
+                          />
+                          <button
+                            onClick={() => saveBooking(editor.name)}
+                            disabled={bookingSaving || !bookingPod || !bookingDate}
+                            className="bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
+                          >
+                            {bookingSaving ? '...' : 'Confirm'}
+                          </button>
+                          <button onClick={() => setBookingEditorId(null)} className="text-gray-400 hover:text-gray-600 p-2 rounded-lg hover:bg-gray-100 transition">
+                            <X className="w-4 h-4" />
                           </button>
                         </div>
                       </div>

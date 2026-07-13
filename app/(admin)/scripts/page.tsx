@@ -37,7 +37,8 @@ export default function ScriptsPage() {
   const [clients, setClients]           = useState<Client[]>([]);
   const [editorStatuses, setEditorStatuses] = useState<Record<string, { editor_name: string; status: string; completed_at?: string; deadline?: string; is_revision?: boolean }>>({});
   const [pods, setPods]                 = useState<PodOption[]>([]);
-  const [editors, setEditors]           = useState<{ id: string; name: string }[]>([]);
+  const [editors, setEditors]           = useState<any[]>([]);
+  const [editorBookings, setEditorBookings] = useState<{ id: string; editor_name: string; booked_by_pod: string; booked_for_date: string; notes: string | null }[]>([]);
   const [isLoading, setIsLoading]       = useState(true);
 
   // Form
@@ -81,12 +82,14 @@ export default function ScriptsPage() {
 
   async function loadScripts() {
     setIsLoading(true);
-    const [scriptsRes, assignmentsRes, clientsRes, editorsRes, podsRes] = await Promise.all([
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [scriptsRes, assignmentsRes, clientsRes, editorsRes, podsRes, bookingsRes] = await Promise.all([
       supabase.from('scripts').select('*').order('created_at', { ascending: false }),
       supabase.from('editor_assignments').select('*'),
       supabase.from('clients').select('*').order('name'),
-      supabase.from('editors').select('id, name').eq('status', 'active').order('name'),
+      supabase.from('editors').select('*').eq('status', 'active').order('name'),
       supabase.from('pods').select('*').order('created_at'),
+      supabase.from('editor_bookings').select('*').gte('booked_for_date', todayStr).order('booked_for_date'),
     ]);
     const statusMap: Record<string, { editor_name: string; status: string; completed_at?: string; deadline?: string; is_revision?: boolean }> = {};
     (assignmentsRes.data || []).forEach((a: any) => {
@@ -101,6 +104,7 @@ export default function ScriptsPage() {
     setClients(clientsRes.data || []);
     setEditors(editorsRes.data || []);
     setPods(podsRes.data || []);
+    setEditorBookings(bookingsRes.data || []);
     setIsLoading(false);
   }
 
@@ -796,6 +800,8 @@ export default function ScriptsPage() {
                     const count = workload[ed.name] || 0;
                     const isFree = count === 0;
                     const isUnavailable = (ed as any).unavailable;
+                    const edBookings = editorBookings.filter(b => b.editor_name === ed.name);
+                    const hasBooking = edBookings.length > 0;
                     return (
                     <button
                       key={ed.id}
@@ -804,23 +810,28 @@ export default function ScriptsPage() {
                       className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition text-left ${
                         assignEditor === ed.name ? 'border-blue-500 bg-blue-50 text-blue-700' :
                         isUnavailable ? 'border-orange-200 bg-orange-50/40 text-gray-400 opacity-70' :
+                        hasBooking ? 'border-violet-200 bg-violet-50/40 text-gray-700 hover:border-violet-300' :
                         'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
                       }`}
                     >
                       <div className={`w-7 h-7 rounded-full font-bold text-xs flex items-center justify-center flex-shrink-0 ${
                         isUnavailable ? 'bg-orange-100 text-orange-400' :
+                        hasBooking ? 'bg-violet-100 text-violet-600' :
                         isFree ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
                       }`}>
-                        {isUnavailable ? '🌙' : ed.name.charAt(0).toUpperCase()}
+                        {isUnavailable ? '🌙' : hasBooking ? '📅' : ed.name.charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0">
                         <p className="truncate">{ed.name}</p>
                         <p className={`text-xs font-normal truncate ${
                           isUnavailable ? 'text-orange-500' :
+                          hasBooking ? 'text-violet-600' :
                           isFree ? 'text-green-600' : 'text-orange-600'
                         }`}>
                           {isUnavailable
                             ? ((ed as any).unavailable_reason || 'Unavailable')
+                            : hasBooking
+                            ? `📅 Pre-booked · ${edBookings[0].booked_by_pod}`
                             : isFree ? '● Free' : `● ${count} video${count > 1 ? 's' : ''}`}
                         </p>
                       </div>

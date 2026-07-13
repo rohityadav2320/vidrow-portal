@@ -50,6 +50,7 @@ export default function TeamBoardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
   const [showAssignModal, setShowAssignModal] = useState(false);
+  const [bookings, setBookings] = useState<{ id: string; editor_name: string; booked_by_pod: string; booked_for_date: string; notes: string | null }[]>([]);
 
   useEffect(() => {
     loadData();
@@ -60,11 +61,13 @@ export default function TeamBoardPage() {
   async function loadData() {
     setIsLoading(true);
     try {
-      const [editorsRes, assignmentsRes, scriptsRes, podsRes] = await Promise.all([
+      const todayStr = new Date().toISOString().split('T')[0];
+      const [editorsRes, assignmentsRes, scriptsRes, podsRes, bookingsRes] = await Promise.all([
         supabase.from('editors').select('*').eq('status', 'active').order('name'),
         supabase.from('editor_assignments').select('*').order('created_at', { ascending: false }),
         supabase.from('scripts').select('*').order('created_at', { ascending: false }),
         supabase.from('pods').select('name, color').order('created_at'),
+        supabase.from('editor_bookings').select('*').gte('booked_for_date', todayStr).order('booked_for_date'),
       ]);
       const colorMap: Record<string, string> = {};
       (podsRes.data || []).forEach((p: any) => { colorMap[p.name] = POD_COLOR_MAP[p.color] || 'bg-gray-100 text-gray-700'; });
@@ -82,6 +85,7 @@ export default function TeamBoardPage() {
       setEditors(editorsRes.data || []);
       setAssignments(enriched);
       setScripts(scriptsRes.data || []);
+      setBookings(bookingsRes.data || []);
       setLastRefreshed(new Date());
     } catch (err) {
       console.error('Load failed:', err);
@@ -187,6 +191,7 @@ export default function TeamBoardPage() {
           scripts={scripts}
           pods={pods}
           existingAssignments={assignments}
+          bookings={bookings}
           onClose={() => setShowAssignModal(false)}
           onAssigned={() => { setShowAssignModal(false); loadData(); }}
         />
@@ -363,11 +368,12 @@ function EditorCard({ editor, assignments, onUpdate, podColorMap }: {
   );
 }
 
-function AssignModal({ editors, scripts, pods, existingAssignments, onClose, onAssigned }: {
+function AssignModal({ editors, scripts, pods, existingAssignments, bookings, onClose, onAssigned }: {
   editors: Editor[];
   scripts: Script[];
   pods: { name: string; color: string }[];
   existingAssignments: EditorAssignment[];
+  bookings: { id: string; editor_name: string; booked_by_pod: string; booked_for_date: string; notes: string | null }[];
   onClose: () => void;
   onAssigned: () => void;
 }) {
@@ -587,6 +593,9 @@ function AssignModal({ editors, scripts, pods, existingAssignments, onClose, onA
               <div className="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
                 {editors.map(e => {
                   const count = editorWorkload[e.name] || 0;
+                  const isUnavailable = (e as any).unavailable;
+                  const editorBookings = bookings.filter(b => b.editor_name === e.name);
+                  const hasBooking = editorBookings.length > 0;
                   return (
                     <button
                       key={e.id}
@@ -595,25 +604,31 @@ function AssignModal({ editors, scripts, pods, existingAssignments, onClose, onA
                       className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition text-left ${
                         selectedEditor === e.name
                           ? 'border-blue-500 bg-blue-50 text-blue-700'
-                          : (e as any).unavailable
+                          : isUnavailable
                           ? 'border-orange-200 bg-orange-50/40 text-gray-400 opacity-70'
+                          : hasBooking
+                          ? 'border-violet-200 bg-violet-50/40 text-gray-700 hover:border-violet-300'
                           : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
                       }`}
                     >
                       <div className={`w-7 h-7 rounded-full font-bold text-xs flex items-center justify-center flex-shrink-0 ${
-                        (e as any).unavailable ? 'bg-orange-100 text-orange-400' :
+                        isUnavailable ? 'bg-orange-100 text-orange-400' :
+                        hasBooking ? 'bg-violet-100 text-violet-600' :
                         count === 0 ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
                       }`}>
-                        {(e as any).unavailable ? '🌙' : e.name.charAt(0).toUpperCase()}
+                        {isUnavailable ? '🌙' : hasBooking ? '📅' : e.name.charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0">
                         <p className="truncate">{e.name}</p>
                         <p className={`text-xs font-normal truncate ${
-                          (e as any).unavailable ? 'text-orange-500' :
+                          isUnavailable ? 'text-orange-500' :
+                          hasBooking ? 'text-violet-600' :
                           count === 0 ? 'text-green-600' : 'text-orange-600'
                         }`}>
-                          {(e as any).unavailable
+                          {isUnavailable
                             ? ((e as any).unavailable_reason || 'Unavailable')
+                            : hasBooking
+                            ? `Pre-booked · ${editorBookings[0].booked_by_pod}`
                             : count === 0 ? 'Free' : `${count} video${count > 1 ? 's' : ''}`}
                         </p>
                       </div>
