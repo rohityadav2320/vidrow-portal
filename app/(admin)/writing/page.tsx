@@ -167,7 +167,7 @@ export default function WritingPage() {
         status: 'pending',
         writing_status: 'writing',
       };
-    }).filter(Boolean);
+    }).filter(Boolean) as { title: string; client: string | null; pod: string | null; status: string; writing_status: string }[];
 
     if (toInsert.length > 0) {
       const { error } = await supabase.from('scripts').insert(toInsert);
