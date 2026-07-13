@@ -22,7 +22,7 @@ interface Assignment {
   completed_at?: string | null;
 }
 
-interface Editor { id: string; name: string; unavailable?: boolean; }
+interface Editor { id: string; name: string; unavailable?: boolean; activeCount?: number; }
 interface Client { id: string; name: string; }
 interface Pod    { id: string; name: string; color: string; }
 
@@ -99,11 +99,15 @@ export default function WritingPage() {
       supabase.from('pods').select('*').order('created_at'),
     ]);
 
-    // Map latest assignment per script
+    // Map latest assignment per script + compute per-editor workload
     const assignmentMap: Record<string, Assignment> = {};
+    const workload: Record<string, number> = {};
     for (const a of (assignmentsRes.data || [])) {
       if (!assignmentMap[a.script_id]) {
         assignmentMap[a.script_id] = { id: a.id, editor_name: a.editor_name, status: a.status, deadline: a.deadline, completed_at: a.completed_at };
+      }
+      if (a.status !== 'done') {
+        workload[a.editor_name] = (workload[a.editor_name] || 0) + 1;
       }
     }
 
@@ -113,7 +117,7 @@ export default function WritingPage() {
     }));
 
     setScripts(enriched);
-    setEditors(editorsRes.data || []);
+    setEditors((editorsRes.data || []).map((e: any) => ({ ...e, activeCount: workload[e.name] || 0 })));
     setClients(clientsRes.data || []);
     setPods(podsRes.data || []);
     setIsLoading(false);
@@ -470,16 +474,27 @@ export default function WritingPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1.5">Editor *</label>
-                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-                  {editors.filter(e => !e.unavailable).map(e => (
-                    <button key={e.id} type="button" onClick={() => setAssignEditor(e.name)}
-                      className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-sm font-medium transition text-left ${assignEditor === e.name ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-gray-200 hover:border-gray-300 text-gray-700'}`}>
-                      <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
-                        <span className="text-indigo-700 font-bold text-xs">{e.name.charAt(0).toUpperCase()}</span>
-                      </div>
-                      <span className="truncate">{e.name}</span>
-                    </button>
-                  ))}
+                <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1">
+                  {[...editors].sort((a, b) => (a.activeCount || 0) - (b.activeCount || 0)).filter(e => !e.unavailable).map(e => {
+                    const count = e.activeCount || 0;
+                    const load = count === 0 ? 'free' : count <= 3 ? 'low' : count <= 6 ? 'mid' : 'high';
+                    const loadColor = { free: 'text-green-600 bg-green-50', low: 'text-blue-600 bg-blue-50', mid: 'text-amber-600 bg-amber-50', high: 'text-red-600 bg-red-50' }[load];
+                    const isSelected = assignEditor === e.name;
+                    return (
+                      <button key={e.id} type="button" onClick={() => setAssignEditor(e.name)}
+                        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border-2 text-sm font-medium transition text-left ${isSelected ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isSelected ? 'bg-indigo-200' : 'bg-gray-100'}`}>
+                          <span className={`font-bold text-sm ${isSelected ? 'text-indigo-700' : 'text-gray-600'}`}>{e.name.charAt(0).toUpperCase()}</span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className={`truncate font-semibold ${isSelected ? 'text-indigo-700' : 'text-gray-800'}`}>{e.name}</p>
+                          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${loadColor}`}>
+                            {count === 0 ? 'Free' : `${count} active`}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
               <div>
