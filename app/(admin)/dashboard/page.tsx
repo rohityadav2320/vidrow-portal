@@ -79,11 +79,13 @@ export default function DashboardPage() {
     ? assignments.filter(a => a.script?.pod === selectedPod)
     : assignments;
 
-  const activeAssignments  = filteredAssignments.filter(a => a.status !== 'done');
-  const assignedScriptIds  = new Set(activeAssignments.map(a => a.script_id));
-  const writingScripts     = filteredScripts.filter(s => (s as any).writing_status === 'writing' && !assignedScriptIds.has(s.id));
-  const pendingScripts     = filteredScripts.filter(s => (s as any).writing_status !== 'writing' && !assignedScriptIds.has(s.id));
-  const withEditorCount    = activeAssignments.length;
+  const activeAssignments   = filteredAssignments.filter(a => a.status !== 'done');
+  const assignedScriptIds   = new Set(activeAssignments.map(a => a.script_id));
+  const writingScripts      = filteredScripts.filter(s => (s as any).writing_status === 'writing');
+  const writtenScripts      = filteredScripts.filter(s => (s as any).writing_status === 'written');
+  const productionScripts   = filteredScripts.filter(s => (s as any).writing_status === 'production');
+  const pendingScripts      = filteredScripts.filter(s => !(s as any).writing_status && !assignedScriptIds.has(s.id));
+  const withEditorCount     = activeAssignments.length;
 
   const overdueAssignments = activeAssignments.filter(a => a.deadline && daysOverdue(a.deadline) > 0);
   const dueSoonAssignments = activeAssignments.filter(a => {
@@ -99,17 +101,22 @@ export default function DashboardPage() {
 
   const columns = [
     {
-      label: 'Being Written', sublabel: 'Waiting for script content',
-      count: writingScripts.length, color: 'text-orange-700', bg: 'bg-orange-50',
+      label: '✍️ Writing', sublabel: 'Being written by pod leaders',
+      count: writingScripts.length, color: 'text-amber-700', bg: 'bg-amber-50',
       items: writingScripts.slice(0, 5), key: 'writing',
     },
     {
-      label: 'Scripts Ready', sublabel: 'Written — ready for editor',
+      label: '🎬 Production', sublabel: 'Script written, filming now',
+      count: productionScripts.length + writtenScripts.length, color: 'text-purple-700', bg: 'bg-purple-50',
+      items: [...productionScripts, ...writtenScripts].slice(0, 5), key: 'production',
+    },
+    {
+      label: 'Scripts Ready', sublabel: 'Ready to assign to editor',
       count: pendingScripts.length, color: 'text-gray-700', bg: 'bg-gray-50',
       items: pendingScripts.slice(0, 5), key: 'pending',
     },
     {
-      label: 'With Editor', sublabel: 'Being worked on',
+      label: 'With Editor', sublabel: 'Being edited now',
       count: withEditorCount, color: 'text-blue-700', bg: 'bg-blue-50',
       items: activeAssignments.slice(0, 5), key: 'with_editor',
     },
@@ -269,11 +276,12 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Stats Cards ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-4 gap-4 mb-8">
-        <StatCard label="Being Written"   value={writingScripts.length}  sub="Waiting for script"   color="orange" />
-        <StatCard label="Scripts Ready"   value={pendingScripts.length}  sub="Waiting for editor"   color="gray"  />
-        <StatCard label="With Editors"    value={withEditorCount}        sub="Being worked on now"  color="blue"  />
-        <StatCard label="Done This Week"  value={doneThisWeek}           sub={`${totalDone} total all time`} color="green" />
+      <div className="grid grid-cols-5 gap-3 mb-8">
+        <StatCard label="✍️ Writing"       value={writingScripts.length}                          sub="Being written"        color="orange" />
+        <StatCard label="🎬 Production"    value={productionScripts.length + writtenScripts.length} sub="In filming / written"  color="purple" />
+        <StatCard label="Scripts Ready"   value={pendingScripts.length}                          sub="Waiting for editor"   color="gray"   />
+        <StatCard label="With Editors"    value={withEditorCount}                                sub="Being edited now"     color="blue"   />
+        <StatCard label="Done This Week"  value={doneThisWeek}                                   sub={`${totalDone} total`} color="green"  />
       </div>
 
       {/* ── Pod Breakdown (clickable) ────────────────────────────────────── */}
@@ -333,7 +341,7 @@ export default function DashboardPage() {
           </div>
           <p className="text-xs text-gray-400">Showing latest 5 per stage</p>
         </div>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-5 gap-3">
           {columns.map(col => (
             <div key={col.key} className={`rounded-xl ${col.bg} border border-gray-200 p-4`}>
               <div className="flex items-center justify-between mb-3">
@@ -383,7 +391,7 @@ export default function DashboardPage() {
 }
 
 function StatCard({ label, value, sub, color }: { label: string; value: number; sub: string; color: string }) {
-  const colors: Record<string, string> = { gray: 'text-gray-900', blue: 'text-blue-600', yellow: 'text-yellow-600', green: 'text-green-600', orange: 'text-orange-600' };
+  const colors: Record<string, string> = { gray: 'text-gray-900', blue: 'text-blue-600', yellow: 'text-yellow-600', green: 'text-green-600', orange: 'text-orange-600', purple: 'text-purple-600' };
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</p>

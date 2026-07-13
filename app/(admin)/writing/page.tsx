@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Plus, Check, RefreshCw, PenLine, X } from 'lucide-react';
+import { Plus, Check, RefreshCw, PenLine, X, ArrowRight, Video, Send } from 'lucide-react';
 
 interface Script {
   id: string;
@@ -25,31 +25,35 @@ const POD_COLOR_MAP: Record<string, string> = {
   green:  'bg-green-100 text-green-700',
 };
 
+const STAGES = [
+  { key: 'writing',    label: '✍️ Writing',    sublabel: 'Being written by pod leader',  bg: 'bg-amber-50',  border: 'border-amber-200',  badge: 'bg-amber-100 text-amber-700',  count_color: 'text-amber-600' },
+  { key: 'written',    label: '✓ Written',     sublabel: 'Script done, going to production', bg: 'bg-blue-50',   border: 'border-blue-200',   badge: 'bg-blue-100 text-blue-700',    count_color: 'text-blue-600' },
+  { key: 'production', label: '🎬 Production', sublabel: 'In video production / filming',  bg: 'bg-purple-50', border: 'border-purple-200', badge: 'bg-purple-100 text-purple-700', count_color: 'text-purple-600' },
+];
+
 export default function WritingPage() {
   const [scripts, setScripts]   = useState<Script[]>([]);
   const [clients, setClients]   = useState<Client[]>([]);
   const [pods, setPods]         = useState<Pod[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Filter state
-  const [filterPod, setFilterPod]     = useState('All');
+  const [filterPod, setFilterPod]       = useState('All');
   const [filterStatus, setFilterStatus] = useState('All');
 
-  // Create form
-  const [showForm, setShowForm]   = useState(false);
-  const [saving, setSaving]       = useState(false);
-  const [formData, setFormData]   = useState({ batchNo: '', scriptNos: [''], pod: '', client: '' });
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving]     = useState(false);
+  const [formData, setFormData] = useState({ batchNo: '', scriptNos: [''], pod: '', client: '' });
   const [newClient, setNewClient] = useState('');
 
-  // Marking written
-  const [markingId, setMarkingId] = useState<string | null>(null);
+  const [actionId, setActionId] = useState<string | null>(null);
 
   useEffect(() => { loadData(); }, []);
 
   async function loadData() {
     setIsLoading(true);
     const [scriptsRes, clientsRes, podsRes] = await Promise.all([
-      supabase.from('scripts').select('id, title, pod, client, writing_status, created_at')
+      supabase.from('scripts')
+        .select('id, title, pod, client, writing_status, created_at')
         .not('writing_status', 'is', null)
         .order('created_at', { ascending: false }),
       supabase.from('clients').select('*').order('name'),
@@ -88,22 +92,21 @@ export default function WritingPage() {
     await loadData();
   }
 
-  async function markWritten(script: Script) {
-    setMarkingId(script.id);
-    await supabase.from('scripts').update({ writing_status: 'written' }).eq('id', script.id);
-    setScripts(prev => prev.map(s => s.id === script.id ? { ...s, writing_status: 'written' } : s));
-    setMarkingId(null);
+  async function advance(script: Script, toStatus: string | null) {
+    setActionId(script.id);
+    await supabase.from('scripts').update({ writing_status: toStatus }).eq('id', script.id);
+    if (toStatus === null) {
+      // Script moved to editing pipeline — remove from this list
+      setScripts(prev => prev.filter(s => s.id !== script.id));
+    } else {
+      setScripts(prev => prev.map(s => s.id === script.id ? { ...s, writing_status: toStatus } : s));
+    }
+    setActionId(null);
   }
 
-  async function markWriting(script: Script) {
-    setMarkingId(script.id);
-    await supabase.from('scripts').update({ writing_status: 'writing' }).eq('id', script.id);
-    setScripts(prev => prev.map(s => s.id === script.id ? { ...s, writing_status: 'writing' } : s));
-    setMarkingId(null);
-  }
-
-  const writingCount = scripts.filter(s => s.writing_status === 'writing').length;
-  const writtenCount = scripts.filter(s => s.writing_status === 'written').length;
+  const writingCount    = scripts.filter(s => s.writing_status === 'writing').length;
+  const writtenCount    = scripts.filter(s => s.writing_status === 'written').length;
+  const productionCount = scripts.filter(s => s.writing_status === 'production').length;
 
   const filtered = scripts
     .filter(s => filterPod === 'All' || s.pod === filterPod)
@@ -115,7 +118,7 @@ export default function WritingPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Writing</h1>
-          <p className="text-gray-400 text-sm mt-0.5">Track which scripts are being written and mark them done</p>
+          <p className="text-gray-400 text-sm mt-0.5">Track scripts from writing → production → editing</p>
         </div>
         <div className="flex items-center gap-3">
           <button onClick={loadData} className="p-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition">
@@ -130,21 +133,58 @@ export default function WritingPage() {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      {/* Pipeline stats */}
+      <div className="grid grid-cols-4 gap-4 mb-6">
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Tickets</p>
           <p className="text-4xl font-bold text-gray-900 mt-2">{scripts.length}</p>
+          <p className="text-xs text-gray-400 mt-1">In writing pipeline</p>
         </div>
         <div className="bg-amber-50 rounded-xl border border-amber-100 shadow-sm p-5">
-          <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider">Being Written</p>
+          <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider">✍️ Writing</p>
           <p className="text-4xl font-bold text-amber-600 mt-2">{writingCount}</p>
-          <p className="text-xs text-amber-500 mt-1">Pending from pod leaders</p>
+          <p className="text-xs text-amber-500 mt-1">Being written</p>
         </div>
-        <div className="bg-green-50 rounded-xl border border-green-100 shadow-sm p-5">
-          <p className="text-xs font-semibold text-green-600 uppercase tracking-wider">Written — Ready for Editor</p>
-          <p className="text-4xl font-bold text-green-600 mt-2">{writtenCount}</p>
-          <p className="text-xs text-green-500 mt-1">Ready to assign to editors</p>
+        <div className="bg-purple-50 rounded-xl border border-purple-100 shadow-sm p-5">
+          <p className="text-xs font-semibold text-purple-600 uppercase tracking-wider">🎬 Production</p>
+          <p className="text-4xl font-bold text-purple-600 mt-2">{productionCount}</p>
+          <p className="text-xs text-purple-500 mt-1">Being filmed / recorded</p>
+        </div>
+        <div className="bg-blue-50 rounded-xl border border-blue-100 shadow-sm p-5">
+          <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider">✓ Written (Pending Prod.)</p>
+          <p className="text-4xl font-bold text-blue-600 mt-2">{writtenCount}</p>
+          <p className="text-xs text-blue-500 mt-1">Script ready, not yet in prod</p>
+        </div>
+      </div>
+
+      {/* Pipeline flow visual */}
+      <div className="flex items-center gap-2 mb-6 bg-white rounded-xl border border-gray-100 shadow-sm px-5 py-4">
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-amber-400 flex-shrink-0" />
+          <span className="text-sm font-semibold text-gray-700">Writing</span>
+          <span className="text-xs text-gray-400 ml-1">({writingCount})</span>
+        </div>
+        <ArrowRight className="w-4 h-4 text-gray-300 flex-shrink-0" />
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-blue-400 flex-shrink-0" />
+          <span className="text-sm font-semibold text-gray-700">Written</span>
+          <span className="text-xs text-gray-400 ml-1">({writtenCount})</span>
+        </div>
+        <ArrowRight className="w-4 h-4 text-gray-300 flex-shrink-0" />
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-purple-400 flex-shrink-0" />
+          <span className="text-sm font-semibold text-gray-700">Production</span>
+          <span className="text-xs text-gray-400 ml-1">({productionCount})</span>
+        </div>
+        <ArrowRight className="w-4 h-4 text-gray-300 flex-shrink-0" />
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-green-400 flex-shrink-0" />
+          <span className="text-sm font-semibold text-gray-700">Editing (Scripts tab)</span>
+        </div>
+        <ArrowRight className="w-4 h-4 text-gray-300 flex-shrink-0" />
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-gray-400 flex-shrink-0" />
+          <span className="text-sm font-semibold text-gray-700">Done</span>
         </div>
       </div>
 
@@ -200,14 +240,13 @@ export default function WritingPage() {
               </div>
             </div>
 
-            {/* Script Numbers */}
             <div className="mb-4">
               <label className="block text-xs font-semibold text-gray-600 mb-1">
                 Script Numbers * <span className="font-normal text-gray-400">— one per row</span>
               </label>
               {formData.batchNo && formData.scriptNos.filter(Boolean).length > 0 && (
                 <p className="text-xs text-blue-600 font-medium mb-2">
-                  {formData.scriptNos.filter(n => n.trim()).length} ticket{formData.scriptNos.filter(n => n.trim()).length > 1 ? 's' : ''} will be created as "writing"
+                  {formData.scriptNos.filter(n => n.trim()).length} ticket{formData.scriptNos.filter(n => n.trim()).length > 1 ? 's' : ''} will be created
                 </p>
               )}
               <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -216,9 +255,7 @@ export default function WritingPage() {
                     <span className="text-xs text-gray-400 w-5 text-right flex-shrink-0">{idx + 1}.</span>
                     <div className="flex-1 relative">
                       <input
-                        type="text"
-                        value={no}
-                        placeholder="e.g. S16"
+                        type="text" value={no} placeholder="e.g. S16"
                         autoFocus={idx === formData.scriptNos.length - 1 && idx > 0}
                         onChange={e => { const u = [...formData.scriptNos]; u[idx] = e.target.value; setFormData({ ...formData, scriptNos: u }); }}
                         onKeyDown={e => {
@@ -237,7 +274,7 @@ export default function WritingPage() {
                       )}
                     </div>
                     {formData.scriptNos.length > 1 && (
-                      <button type="button" onClick={() => setFormData({ ...formData, scriptNos: formData.scriptNos.filter((_, i) => i !== idx) })} className="text-gray-300 hover:text-red-400 flex-shrink-0">
+                      <button type="button" onClick={() => setFormData({ ...formData, scriptNos: formData.scriptNos.filter((_, i) => i !== idx) })} className="text-gray-300 hover:text-red-400">
                         <X className="w-3.5 h-3.5" />
                       </button>
                     )}
@@ -247,7 +284,7 @@ export default function WritingPage() {
               <button type="button" onClick={() => setFormData({ ...formData, scriptNos: [...formData.scriptNos, ''] })} className="mt-2 text-xs text-blue-600 font-medium hover:underline flex items-center gap-1">
                 <Plus className="w-3 h-3" />Add another script
               </button>
-              <p className="text-xs text-gray-400 mt-1">Tip: press Enter on any row to quickly add the next one</p>
+              <p className="text-xs text-gray-400 mt-1">Tip: press Enter to quickly add the next one</p>
             </div>
 
             <div className="flex gap-2">
@@ -278,8 +315,8 @@ export default function WritingPage() {
           ))}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-gray-400 font-medium w-10">Status</span>
-          {[{ val: 'All', label: 'All' }, { val: 'writing', label: '✍️ Writing' }, { val: 'written', label: '✓ Written' }].map(s => (
+          <span className="text-xs text-gray-400 font-medium w-10">Stage</span>
+          {[{ val: 'All', label: 'All' }, ...STAGES.map(s => ({ val: s.key, label: s.label }))].map(s => (
             <button key={s.val} onClick={() => setFilterStatus(s.val)} className={`text-xs font-semibold px-3 py-1.5 rounded-full transition ${filterStatus === s.val ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
               {s.label}
             </button>
@@ -294,7 +331,7 @@ export default function WritingPage() {
         <div className="bg-white rounded-xl border border-dashed border-gray-300 py-16 text-center">
           <PenLine className="w-8 h-8 text-gray-300 mx-auto mb-3" />
           <p className="text-gray-400 font-medium">No writing tickets yet</p>
-          <p className="text-gray-300 text-sm mt-1">Click "New Writing Tickets" to create some</p>
+          <p className="text-gray-300 text-sm mt-1">Click "New Writing Tickets" to get started</p>
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow overflow-hidden">
@@ -305,56 +342,81 @@ export default function WritingPage() {
                 <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Client</th>
                 <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Pod</th>
                 <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Created</th>
-                <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-3 py-3 w-36"></th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Stage</th>
+                <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {filtered.map(script => {
-                const isWritten = script.writing_status === 'written';
-                const isMarking = markingId === script.id;
+                const stage = script.writing_status;
+                const isActing = actionId === script.id;
                 const podObj = pods.find(p => p.name === script.pod);
+                const stageInfo = STAGES.find(s => s.key === stage);
                 return (
-                  <tr key={script.id} className={`transition ${isWritten ? 'bg-green-50/30' : 'hover:bg-gray-50'}`}>
+                  <tr key={script.id} className={`transition ${stage === 'production' ? 'bg-purple-50/20' : stage === 'written' ? 'bg-blue-50/20' : 'hover:bg-gray-50'}`}>
                     <td className="px-4 py-3">
-                      <p className={`text-sm font-medium ${isWritten ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{script.title}</p>
+                      <p className="text-sm font-medium text-gray-900">{script.title}</p>
                     </td>
                     <td className="px-3 py-3">
-                      {script.client ? (
-                        <span className="text-xs font-semibold px-2 py-1 rounded-full bg-teal-50 text-teal-700 border border-teal-200">{script.client}</span>
-                      ) : <span className="text-gray-300 text-xs">—</span>}
+                      {script.client
+                        ? <span className="text-xs font-semibold px-2 py-1 rounded-full bg-teal-50 text-teal-700 border border-teal-200">{script.client}</span>
+                        : <span className="text-gray-300 text-xs">—</span>}
                     </td>
                     <td className="px-3 py-3">
-                      {script.pod ? (
-                        <span className={`text-xs font-semibold px-2 py-1 rounded-full ${POD_COLOR_MAP[podObj?.color || 'blue'] || 'bg-gray-100 text-gray-700'}`}>{script.pod}</span>
-                      ) : <span className="text-gray-300 text-xs">—</span>}
+                      {script.pod
+                        ? <span className={`text-xs font-semibold px-2 py-1 rounded-full ${POD_COLOR_MAP[podObj?.color || 'blue'] || 'bg-gray-100 text-gray-700'}`}>{script.pod}</span>
+                        : <span className="text-gray-300 text-xs">—</span>}
                     </td>
                     <td className="px-3 py-3 text-xs text-gray-400 whitespace-nowrap">
                       {new Date(script.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                     </td>
                     <td className="px-3 py-3">
-                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${isWritten ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                        {isWritten ? '✓ Written' : '✍️ Writing'}
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${stageInfo?.badge || 'bg-gray-100 text-gray-600'}`}>
+                        {stageInfo?.label || stage}
                       </span>
                     </td>
-                    <td className="px-3 py-3 text-right">
-                      {isWritten ? (
-                        <button
-                          onClick={() => markWriting(script)}
-                          disabled={!!isMarking}
-                          className="text-xs text-gray-400 hover:text-amber-600 font-medium px-3 py-1.5 rounded-lg hover:bg-amber-50 transition disabled:opacity-40"
-                        >
-                          {isMarking ? '…' : '↩ Undo'}
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => markWritten(script)}
-                          disabled={!!isMarking}
-                          className="flex items-center gap-1.5 text-xs font-semibold text-white bg-green-500 hover:bg-green-600 px-3 py-1.5 rounded-lg transition disabled:opacity-40 ml-auto"
-                        >
-                          {isMarking ? '…' : <><Check className="w-3.5 h-3.5" />Mark Written</>}
-                        </button>
-                      )}
+                    <td className="px-3 py-3">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Back button — only if not already at first stage */}
+                        {stage !== 'writing' && (
+                          <button
+                            onClick={() => advance(script, stage === 'written' ? 'writing' : 'written')}
+                            disabled={isActing}
+                            className="text-xs text-gray-400 hover:text-gray-600 font-medium px-2 py-1.5 rounded-lg hover:bg-gray-100 transition disabled:opacity-40"
+                          >
+                            ← Undo
+                          </button>
+                        )}
+
+                        {/* Forward button */}
+                        {stage === 'writing' && (
+                          <button
+                            onClick={() => advance(script, 'written')}
+                            disabled={isActing}
+                            className="flex items-center gap-1.5 text-xs font-semibold text-white bg-blue-500 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition disabled:opacity-40"
+                          >
+                            {isActing ? '…' : <><Check className="w-3.5 h-3.5" />Mark Written</>}
+                          </button>
+                        )}
+                        {stage === 'written' && (
+                          <button
+                            onClick={() => advance(script, 'production')}
+                            disabled={isActing}
+                            className="flex items-center gap-1.5 text-xs font-semibold text-white bg-purple-500 hover:bg-purple-600 px-3 py-1.5 rounded-lg transition disabled:opacity-40"
+                          >
+                            {isActing ? '…' : <><Video className="w-3.5 h-3.5" />Send to Production</>}
+                          </button>
+                        )}
+                        {stage === 'production' && (
+                          <button
+                            onClick={() => advance(script, null)}
+                            disabled={isActing}
+                            className="flex items-center gap-1.5 text-xs font-semibold text-white bg-green-500 hover:bg-green-600 px-3 py-1.5 rounded-lg transition disabled:opacity-40"
+                          >
+                            {isActing ? '…' : <><Send className="w-3.5 h-3.5" />Send to Editing</>}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
