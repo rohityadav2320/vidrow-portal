@@ -42,7 +42,7 @@ export default function ScriptsPage() {
 
   // Form
   const [showForm, setShowForm]         = useState(false);
-  const [formData, setFormData]         = useState({ batchNo: '', scriptNo: '', pod: '', description: '', client: '' });
+  const [formData, setFormData]         = useState({ batchNo: '', scriptNos: [''], pod: '', description: '', client: '' });
   const [newClientName, setNewClientName] = useState('');
   const [addingClient, setAddingClient] = useState(false);
   const [saving, setSaving]             = useState(false);
@@ -119,22 +119,33 @@ export default function ScriptsPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!formData.batchNo.trim() || !formData.scriptNo.trim() || !formData.pod) return;
-    const parts = [formData.client, formData.batchNo.trim() ? `Batch${formData.batchNo.trim()}` : '', formData.scriptNo.trim() ? `Script${formData.scriptNo.trim()}` : ''].filter(Boolean);
-    const generatedTitle = parts.join('_');
-    const duplicate = scripts.find(s => s.title.trim().toLowerCase() === generatedTitle.toLowerCase() && s.pod === formData.pod);
-    if (duplicate) { alert(`"${generatedTitle}" already exists in ${formData.pod}.`); return; }
+    const validNos = formData.scriptNos.map(n => n.trim()).filter(Boolean);
+    if (!formData.batchNo.trim() || validNos.length === 0 || !formData.pod) return;
+
+    const toInsert = validNos.map(no => {
+      const parts = [formData.client, `Batch${formData.batchNo.trim()}`, `Script${no}`].filter(Boolean);
+      return { title: parts.join('_'), pod: formData.pod, description: formData.description || null, client: formData.client || null, status: 'pending' as const };
+    });
+
+    // Check duplicates locally
+    const dupTitle = toInsert.find(t => scripts.some(s => s.title.trim().toLowerCase() === t.title.toLowerCase() && s.pod === t.pod));
+    if (dupTitle) { alert(`"${dupTitle.title}" already exists in ${dupTitle.pod}.`); return; }
+
     setSaving(true);
     try {
-      const { data, error } = await supabase.from('scripts')
-        .insert({ title: generatedTitle, pod: formData.pod, description: formData.description || null, client: formData.client || null, status: 'pending' })
-        .select().single();
-      if (error) { if (error.code === '23505') alert(`"${generatedTitle}" already exists.`); else throw error; return; }
-      setScripts([data, ...scripts]);
-      setFormData({ batchNo: '', scriptNo: '', pod: '', description: '', client: '' });
+      const { data, error } = await supabase.from('scripts').insert(toInsert).select();
+      if (error) { if (error.code === '23505') alert('One or more scripts already exist.'); else throw error; return; }
+      const newScripts: Script[] = data || [];
+      setScripts([...newScripts.reverse(), ...scripts]);
+      setFormData({ batchNo: '', scriptNos: [''], pod: '', description: '', client: '' });
       setNewClientName('');
       setShowForm(false);
-      setJustCreatedScript(data);   // ← show assign banner
+      if (newScripts.length === 1) {
+        setJustCreatedScript(newScripts[0]);
+      } else {
+        // For bulk, show assign banner for all created scripts
+        setJustCreatedScript({ ...newScripts[0], title: `${newScripts.length} scripts created` } as Script);
+      }
     } catch (err: any) { alert('Failed to create: ' + err.message); } finally { setSaving(false); }
   }
 
@@ -338,51 +349,111 @@ export default function ScriptsPage() {
       {/* ── Create Form ─────────────────────────────────────────────────── */}
       {showForm && (
         <div className="bg-white rounded-xl border border-blue-200 shadow-sm p-5 mb-6">
-          <h2 className="font-bold text-gray-900 mb-4">New Script</h2>
+          <h2 className="font-bold text-gray-900 mb-4">New Scripts</h2>
           <form onSubmit={handleCreate}>
-            <div className="flex items-end gap-3 mb-2">
-              <div className="w-36">
+            {/* Batch + Pod row */}
+            <div className="flex items-end gap-3 mb-4">
+              <div className="w-40">
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Batch No. *</label>
                 <input type="text" required autoFocus value={formData.batchNo} onChange={e => setFormData({ ...formData, batchNo: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500" placeholder="e.g. B19" />
               </div>
-              <div className="w-36">
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Script No. *</label>
-                <input type="text" required value={formData.scriptNo} onChange={e => setFormData({ ...formData, scriptNo: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500" placeholder="e.g. S16" />
-              </div>
-              <div className="w-40">
+              <div className="w-44">
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Pod *</label>
                 <select required value={formData.pod} onChange={e => setFormData({ ...formData, pod: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500">
                   <option value="">Select pod...</option>
                   {pods.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
                 </select>
               </div>
-            </div>
-            {(formData.batchNo || formData.scriptNo) && (
-              <p className="text-xs text-gray-400 mb-3">Will be saved as: <span className="font-semibold text-gray-600">{[formData.client, formData.batchNo ? `Batch${formData.batchNo}` : '', formData.scriptNo ? `Script${formData.scriptNo}` : ''].filter(Boolean).join('_') || '—'}</span></p>
-            )}
-            <div className="mb-3">
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Description <span className="font-normal text-gray-400">(optional)</span></label>
-              <textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 resize-none" placeholder="Brief notes about this script..." />
-            </div>
-            <div className="mb-4">
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Client</label>
-              <div className="flex gap-2">
-                <select value={formData.client} onChange={e => setFormData({ ...formData, client: e.target.value })} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500">
-                  <option value="">No client</option>
-                  {clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                </select>
-                <input type="text" value={newClientName} onChange={e => setNewClientName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddClient(); } }} className="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500" placeholder="New client..." />
-                <button type="button" onClick={handleAddClient} disabled={addingClient || !newClientName.trim()} className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 disabled:opacity-40 text-gray-700 text-xs font-semibold py-2 px-3 rounded-lg transition whitespace-nowrap">
-                  <Building2 className="w-3.5 h-3.5" />{addingClient ? '...' : '+ Add'}
-                </button>
+              <div className="flex-1">
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Client</label>
+                <div className="flex gap-2">
+                  <select value={formData.client} onChange={e => setFormData({ ...formData, client: e.target.value })} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500">
+                    <option value="">No client</option>
+                    {clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                  </select>
+                  <input type="text" value={newClientName} onChange={e => setNewClientName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddClient(); } }} className="w-36 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500" placeholder="New client..." />
+                  <button type="button" onClick={handleAddClient} disabled={addingClient || !newClientName.trim()} className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 disabled:opacity-40 text-gray-700 text-xs font-semibold py-2 px-3 rounded-lg transition whitespace-nowrap">
+                    <Building2 className="w-3.5 h-3.5" />{addingClient ? '...' : '+ Add'}
+                  </button>
+                </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1.5">After creating, you can assign to an editor right here on this page</p>
             </div>
-            <div className="flex gap-2">
-              <button type="submit" disabled={saving} className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-sm font-medium py-2 px-5 rounded-lg transition">
-                {saving ? 'Creating...' : 'Create Script'}
+
+            {/* Script numbers list */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold text-gray-600">Script Numbers * <span className="font-normal text-gray-400">— one per row</span></label>
+                {formData.scriptNos.filter(Boolean).length > 0 && formData.batchNo && (
+                  <span className="text-xs text-blue-600 font-medium">
+                    {formData.scriptNos.filter(n => n.trim()).length} script{formData.scriptNos.filter(n => n.trim()).length > 1 ? 's' : ''} will be created
+                  </span>
+                )}
+              </div>
+              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                {formData.scriptNos.map((no, idx) => {
+                  const preview = formData.batchNo && no.trim()
+                    ? [formData.client, `Batch${formData.batchNo}`, `Script${no.trim()}`].filter(Boolean).join('_')
+                    : null;
+                  return (
+                    <div key={idx} className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400 w-5 text-right flex-shrink-0">{idx + 1}.</span>
+                      <input
+                        type="text"
+                        value={no}
+                        autoFocus={idx === formData.scriptNos.length - 1 && idx > 0}
+                        onChange={e => {
+                          const updated = [...formData.scriptNos];
+                          updated[idx] = e.target.value;
+                          setFormData({ ...formData, scriptNos: updated });
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const updated = [...formData.scriptNos];
+                            updated.splice(idx + 1, 0, '');
+                            setFormData({ ...formData, scriptNos: updated });
+                          }
+                          if (e.key === 'Backspace' && !no && formData.scriptNos.length > 1) {
+                            e.preventDefault();
+                            const updated = formData.scriptNos.filter((_, i) => i !== idx);
+                            setFormData({ ...formData, scriptNos: updated });
+                          }
+                        }}
+                        className="w-36 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g. S16"
+                      />
+                      {preview && (
+                        <span className="text-xs text-gray-400 truncate flex-1">→ <span className="text-gray-600 font-medium">{preview}</span></span>
+                      )}
+                      {formData.scriptNos.length > 1 && (
+                        <button type="button" onClick={() => setFormData({ ...formData, scriptNos: formData.scriptNos.filter((_, i) => i !== idx) })} className="text-gray-300 hover:text-red-400 flex-shrink-0">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, scriptNos: [...formData.scriptNos, ''] })}
+                className="mt-2 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-semibold"
+              >
+                <Plus className="w-3.5 h-3.5" />Add another script
               </button>
-              <button type="button" onClick={() => { setShowForm(false); setNewClientName(''); }} className="text-gray-500 hover:text-gray-700 text-sm py-2 px-3 rounded-lg hover:bg-gray-100 transition">Cancel</button>
+              <p className="text-xs text-gray-400 mt-1">Tip: press Enter on any row to quickly add the next one</p>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Description <span className="font-normal text-gray-400">(optional — applies to all scripts)</span></label>
+              <textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 resize-none" placeholder="Brief notes about this batch..." />
+            </div>
+
+            <div className="flex gap-2">
+              <button type="submit" disabled={saving || !formData.batchNo.trim() || !formData.pod || formData.scriptNos.filter(n => n.trim()).length === 0} className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-sm font-medium py-2 px-5 rounded-lg transition">
+                {saving ? 'Creating...' : `Create ${formData.scriptNos.filter(n => n.trim()).length > 1 ? `${formData.scriptNos.filter(n => n.trim()).length} Scripts` : 'Script'}`}
+              </button>
+              <button type="button" onClick={() => { setShowForm(false); setNewClientName(''); setFormData({ batchNo: '', scriptNos: [''], pod: '', description: '', client: '' }); }} className="text-gray-500 hover:text-gray-700 text-sm py-2 px-3 rounded-lg hover:bg-gray-100 transition">Cancel</button>
             </div>
           </form>
         </div>
