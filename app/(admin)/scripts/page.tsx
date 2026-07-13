@@ -224,9 +224,13 @@ export default function ScriptsPage() {
     } catch (err: any) { alert('Failed: ' + err.message); } finally { setAssigning(false); }
   }
 
-  function getRealStatus(scriptId: string) {
+  function getRealStatus(scriptId: string, writingStatus?: string | null) {
     const a = editorStatuses[scriptId];
-    if (!a) return 'pending';
+    if (!a) {
+      if (writingStatus === 'written') return 'written';
+      if (writingStatus === 'writing') return 'writing';
+      return 'pending';
+    }
     if (a.status === 'done') return 'done';
     if (a.is_revision) return 'revision';
     if (a.status === 'in_progress') return 'editing';
@@ -279,7 +283,7 @@ export default function ScriptsPage() {
   });
 
   const overdueCount = scripts.filter(s => {
-    const status = getRealStatus(s.id);
+    const status = getRealStatus(s.id, (s as any).writing_status);
     if (status === 'done') return false;
     const deadline = editorStatuses[s.id]?.deadline;
     return !!getDeadlineInfo(deadline, false)?.overdue;
@@ -291,12 +295,12 @@ export default function ScriptsPage() {
     .filter(s => {
       if (filterStatus === 'All') return true;
       if (filterStatus === 'overdue') {
-        const status = getRealStatus(s.id);
+        const status = getRealStatus(s.id, (s as any).writing_status);
         if (status === 'done') return false;
         const deadline = editorStatuses[s.id]?.deadline;
         return !!getDeadlineInfo(deadline, false)?.overdue;
       }
-      return getRealStatus(s.id) === filterStatus;
+      return getRealStatus(s.id, (s as any).writing_status) === filterStatus;
     })
     .filter(s => filterClient === 'All' || s.client === filterClient)
     .filter(s => filterBatch === 'All' || extractBatch(s.title) === filterBatch);
@@ -307,7 +311,7 @@ export default function ScriptsPage() {
     const rows = [
       ['Title', 'Client', 'Pod', 'Description', 'Status', 'Editor', 'Deadline', 'Completed On', 'Created On'],
       ...filtered.map(s => {
-        const realStatus = getRealStatus(s.id);
+        const realStatus = getRealStatus(s.id, (s as any).writing_status);
         const a = editorStatuses[s.id];
         const statusLabel = realStatus === 'done' ? 'Done' : realStatus === 'editing' ? 'Editing' : realStatus === 'with_editor' ? 'With Editor' : 'Pending';
         return [s.title, s.client || '', s.pod || '', (s as any).description || '', statusLabel, a?.editor_name || '', a?.deadline || '', a?.completed_at ? new Date(a.completed_at).toLocaleDateString('en-IN') : '', new Date(s.created_at).toLocaleDateString('en-IN')];
@@ -498,7 +502,7 @@ export default function ScriptsPage() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-gray-400 font-medium w-10">Status</span>
-          {[{ val: 'All', label: 'All' }, { val: 'pending', label: 'Pending' }, { val: 'with_editor', label: 'With Editor' }, { val: 'revision', label: '↩ Revision' }, { val: 'editing', label: 'Editing' }, { val: 'done', label: 'Done' }, { val: 'overdue', label: '🚨 Overdue', red: true }].map(s => (
+          {[{ val: 'All', label: 'All' }, { val: 'pending', label: 'Pending' }, { val: 'writing', label: '✍️ Writing' }, { val: 'written', label: '✓ Written' }, { val: 'with_editor', label: 'With Editor' }, { val: 'revision', label: '↩ Revision' }, { val: 'editing', label: 'Editing' }, { val: 'done', label: 'Done' }, { val: 'overdue', label: '🚨 Overdue', red: true }].map(s => (
             <button key={s.val} onClick={() => setFilterStatus(s.val)} className={`text-xs font-semibold px-3 py-1.5 rounded-full transition ${filterStatus === s.val ? (s.red ? 'bg-red-600 text-white' : 'bg-gray-900 text-white') : (s.red ? 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}`}>
               {s.label} {s.val === 'overdue' && overdueCount > 0 ? `(${overdueCount})` : ''}
             </button>
@@ -566,7 +570,7 @@ export default function ScriptsPage() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {filtered.map(script => {
-                const realStatus = getRealStatus(script.id);
+                const realStatus = getRealStatus(script.id, (script as any).writing_status);
                 const assignment = editorStatuses[script.id];
                 const dlInfo = getDeadlineInfo(assignment?.deadline, realStatus === 'done');
                 const isEditing = editingId === script.id;
@@ -691,9 +695,17 @@ export default function ScriptsPage() {
                         realStatus === 'revision' ? 'bg-amber-100 text-amber-700' :
                         realStatus === 'editing' ? 'bg-yellow-100 text-yellow-700' :
                         realStatus === 'with_editor' ? 'bg-blue-100 text-blue-700' :
+                        realStatus === 'written' ? 'bg-emerald-100 text-emerald-700' :
+                        realStatus === 'writing' ? 'bg-orange-100 text-orange-700' :
                         'bg-gray-100 text-gray-600'
                       }`}>
-                        {realStatus === 'done' ? '✓ Done' : realStatus === 'revision' ? '↩ Revision' : realStatus === 'editing' ? 'Editing' : realStatus === 'with_editor' ? 'With Editor' : 'Pending'}
+                        {realStatus === 'done' ? '✓ Done' :
+                         realStatus === 'revision' ? '↩ Revision' :
+                         realStatus === 'editing' ? 'Editing' :
+                         realStatus === 'with_editor' ? 'With Editor' :
+                         realStatus === 'written' ? '✓ Written' :
+                         realStatus === 'writing' ? '✍️ Writing' :
+                         'Pending'}
                       </span>
                     </td>
                     {/* Editor column */}

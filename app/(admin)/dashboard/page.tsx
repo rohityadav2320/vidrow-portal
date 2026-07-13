@@ -81,7 +81,8 @@ export default function DashboardPage() {
 
   const activeAssignments  = filteredAssignments.filter(a => a.status !== 'done');
   const assignedScriptIds  = new Set(activeAssignments.map(a => a.script_id));
-  const pendingScripts     = filteredScripts.filter(s => !assignedScriptIds.has(s.id));
+  const writingScripts     = filteredScripts.filter(s => (s as any).writing_status === 'writing' && !assignedScriptIds.has(s.id));
+  const pendingScripts     = filteredScripts.filter(s => (s as any).writing_status !== 'writing' && !assignedScriptIds.has(s.id));
   const withEditorCount    = activeAssignments.length;
 
   const overdueAssignments = activeAssignments.filter(a => a.deadline && daysOverdue(a.deadline) > 0);
@@ -98,7 +99,12 @@ export default function DashboardPage() {
 
   const columns = [
     {
-      label: 'Scripts Ready', sublabel: 'Not yet with any editor',
+      label: 'Being Written', sublabel: 'Waiting for script content',
+      count: writingScripts.length, color: 'text-orange-700', bg: 'bg-orange-50',
+      items: writingScripts.slice(0, 5), key: 'writing',
+    },
+    {
+      label: 'Scripts Ready', sublabel: 'Written — ready for editor',
       count: pendingScripts.length, color: 'text-gray-700', bg: 'bg-gray-50',
       items: pendingScripts.slice(0, 5), key: 'pending',
     },
@@ -263,8 +269,9 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Stats Cards ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        <StatCard label="Scripts Ready"   value={pendingScripts.length} sub="Waiting for editor"   color="gray"  />
+      <div className="grid grid-cols-4 gap-4 mb-8">
+        <StatCard label="Being Written"   value={writingScripts.length}  sub="Waiting for script"   color="orange" />
+        <StatCard label="Scripts Ready"   value={pendingScripts.length}  sub="Waiting for editor"   color="gray"  />
         <StatCard label="With Editors"    value={withEditorCount}        sub="Being worked on now"  color="blue"  />
         <StatCard label="Done This Week"  value={doneThisWeek}           sub={`${totalDone} total all time`} color="green" />
       </div>
@@ -326,7 +333,7 @@ export default function DashboardPage() {
           </div>
           <p className="text-xs text-gray-400">Showing latest 5 per stage</p>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-4 gap-4">
           {columns.map(col => (
             <div key={col.key} className={`rounded-xl ${col.bg} border border-gray-200 p-4`}>
               <div className="flex items-center justify-between mb-3">
@@ -376,7 +383,7 @@ export default function DashboardPage() {
 }
 
 function StatCard({ label, value, sub, color }: { label: string; value: number; sub: string; color: string }) {
-  const colors: Record<string, string> = { gray: 'text-gray-900', blue: 'text-blue-600', yellow: 'text-yellow-600', green: 'text-green-600' };
+  const colors: Record<string, string> = { gray: 'text-gray-900', blue: 'text-blue-600', yellow: 'text-yellow-600', green: 'text-green-600', orange: 'text-orange-600' };
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</p>
