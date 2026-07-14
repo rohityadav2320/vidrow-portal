@@ -81,10 +81,12 @@ export default function WritingPage() {
   const [filterStatus, setFilterStatus] = useState('All');
 
   // Create form
-  const [showForm, setShowForm] = useState(false);
-  const [saving, setSaving]     = useState(false);
-  const [formData, setFormData] = useState({ batchNo: '', count: '1', pod: '', client: '' });
+  const [showForm, setShowForm]   = useState(false);
+  const [saving, setSaving]       = useState(false);
+  const [formData, setFormData]   = useState({ batchNo: '', count: '1', pod: '', client: '' });
   const [newClient, setNewClient] = useState('');
+  const [createError, setCreateError] = useState('');
+  const [nextStart, setNextStart] = useState(1);
 
   // "Mark Written" modal with script details
   const [writtenModal, setWrittenModal]   = useState<Script | null>(null);
@@ -143,18 +145,54 @@ export default function WritingPage() {
     setNewClient('');
   }
 
+  async function lookupNextStart() {
+    const batch = formData.batchNo.trim();
+    if (!batch) { setNextStart(1); return; }
+    const prefix = [formData.client, `Batch${batch}`, 'Script'].filter(Boolean).join('_');
+    const { data } = await supabase.from('scripts').select('title').like('title', `${prefix}%`);
+    let max = 0;
+    for (const s of (data || [])) {
+      const m = s.title.match(/_Script(\d+)$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    setNextStart(max + 1);
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
+    setCreateError('');
     const n = parseInt(formData.count, 10);
     if (!formData.batchNo.trim() || !formData.pod || !n || n < 1) return;
     setSaving(true);
+
+    const prefix = [formData.client, `Batch${formData.batchNo.trim()}`].filter(Boolean).join('_');
+
+    // Find highest existing script number for this batch
+    const { data: existing } = await supabase.from('scripts').select('title').like('title', `${prefix}_Script%`);
+    let max = 0;
+    for (const s of (existing || [])) {
+      const m = s.title.match(/_Script(\d+)$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    const startFrom = max + 1;
+
     const rows = Array.from({ length: n }, (_, i) => ({
-      title: [formData.client, `Batch${formData.batchNo.trim()}`, `Script${i + 1}`].filter(Boolean).join('_'),
+      title: `${prefix}_Script${startFrom + i}`,
       pod: formData.pod, client: formData.client || null,
       status: 'pending' as const, writing_status: 'writing',
     }));
+
+    // Duplicate guard
+    const { data: dupes } = await supabase.from('scripts').select('title').in('title', rows.map(r => r.title));
+    if (dupes && dupes.length > 0) {
+      setCreateError(`These tickets already exist: ${dupes.map(d => d.title).join(', ')}`);
+      setSaving(false);
+      return;
+    }
+
     await supabase.from('scripts').insert(rows);
     setFormData({ batchNo: '', count: '1', pod: '', client: '' });
+    setNextStart(1);
     setShowForm(false); setSaving(false);
     await loadData();
   }
@@ -276,7 +314,9 @@ export default function WritingPage() {
             <div className="flex items-end gap-3 mb-4">
               <div className="w-36">
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Batch No. *</label>
-                <input type="text" required autoFocus value={formData.batchNo} onChange={e => setFormData({ ...formData, batchNo: e.target.value })}
+                <input type="text" required autoFocus value={formData.batchNo}
+                  onChange={e => setFormData({ ...formData, batchNo: e.target.value })}
+                  onBlur={lookupNextStart}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500" placeholder="e.g. B19" />
               </div>
               <div className="w-44">
@@ -290,7 +330,7 @@ export default function WritingPage() {
               <div className="flex-1">
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Client</label>
                 <div className="flex gap-2">
-                  <select value={formData.client} onChange={e => setFormData({ ...formData, client: e.target.value })}
+                  <select value={formData.client} onChange={e => setFormData({ ...formData, client: e.target.value })} onBlur={lookupNextStart}
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500">
                     <option value="">No client</option>
                     {clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
@@ -302,27 +342,36 @@ export default function WritingPage() {
                 </div>
               </div>
             </div>
-            <div className="mb-4 flex items-end gap-4">
+            <div className="mb-2 flex items-end gap-4">
               <div className="w-44">
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Number of Tickets *</label>
-                <input type="number" min="1" max="200" required autoFocus value={formData.count}
-                  onChange={e => setFormData({ ...formData, count: e.target.value })}
+                <input type="number" min="1" max="200" required value={formData.count}
+                  onChange={e => { setCreateError(''); setFormData({ ...formData, count: e.target.value }); }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500" placeholder="e.g. 20" />
               </div>
               {formData.batchNo && parseInt(formData.count) > 0 && formData.pod && (
                 <p className="text-xs text-gray-400 pb-2.5">
                   Will create <span className="font-semibold text-gray-700">{parseInt(formData.count) || 0}</span> tickets:&nbsp;
-                  {[formData.client, `Batch${formData.batchNo}`, 'Script1'].filter(Boolean).join('_')}
-                  {parseInt(formData.count) > 1 && <> … Script{parseInt(formData.count)}</>}
+                  <span className="font-mono text-gray-600">
+                    {[formData.client, `Batch${formData.batchNo}`, `Script${nextStart}`].filter(Boolean).join('_')}
+                    {parseInt(formData.count) > 1 && <> → Script{nextStart + parseInt(formData.count) - 1}</>}
+                  </span>
+                  {nextStart > 1 && <span className="ml-2 text-blue-500 font-medium">(continuing from #{nextStart})</span>}
                 </p>
               )}
             </div>
+            {createError && (
+              <div className="mb-3 flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-xs font-medium px-3 py-2.5 rounded-lg">
+                <span className="mt-0.5 flex-shrink-0">⚠️</span>
+                <span>{createError}</span>
+              </div>
+            )}
             <div className="flex gap-2">
               <button type="submit" disabled={saving || !formData.batchNo.trim() || !formData.pod || !parseInt(formData.count)}
                 className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-sm font-medium py-2 px-5 rounded-lg transition">
                 {saving ? 'Creating…' : `Create ${parseInt(formData.count) || 0} Ticket${parseInt(formData.count) !== 1 ? 's' : ''}`}
               </button>
-              <button type="button" onClick={() => setShowForm(false)} className="text-gray-500 text-sm font-medium py-2 px-4 rounded-lg hover:bg-gray-100 transition">Cancel</button>
+              <button type="button" onClick={() => { setShowForm(false); setCreateError(''); setNextStart(1); }} className="text-gray-500 text-sm font-medium py-2 px-4 rounded-lg hover:bg-gray-100 transition">Cancel</button>
             </div>
           </form>
         </div>
