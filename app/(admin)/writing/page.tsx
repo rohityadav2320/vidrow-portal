@@ -187,14 +187,17 @@ export default function WritingPage() {
   const [assignSaving, setAssignSaving]     = useState(false);
 
   // Sheet file upload modal
-  const [showUpload, setShowUpload]     = useState(false);
-  const [uploadClient, setUploadClient] = useState('');
-  const [uploadBatch, setUploadBatch]   = useState('');
-  const [uploadStep, setUploadStep]     = useState<1 | 2>(1);
-  const [uploadRows, setUploadRows]     = useState<UploadRow[]>([]);
-  const [parseError, setParseError]     = useState('');
-  const [uploading, setUploading]       = useState(false);
+  const [showUpload, setShowUpload]         = useState(false);
+  const [uploadClient, setUploadClient]     = useState('');
+  const [uploadBatch, setUploadBatch]       = useState('');
+  const [uploadStep, setUploadStep]         = useState<1 | 2>(1);
+  const [uploadRows, setUploadRows]         = useState<UploadRow[]>([]);
+  const [parseError, setParseError]         = useState('');
+  const [uploading, setUploading]           = useState(false);
   const [uploadFileName, setUploadFileName] = useState('');
+  const [xlsxSheetNames, setXlsxSheetNames] = useState<string[]>([]);
+  const [xlsxSelectedSheet, setXlsxSelectedSheet] = useState('');
+  const [xlsxWorkbook, setXlsxWorkbook]     = useState<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Expanded rows & action spinner
@@ -311,39 +314,57 @@ export default function WritingPage() {
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
     setParseError(''); setUploadFileName(file.name);
+    setXlsxSheetNames([]); setXlsxSelectedSheet(''); setXlsxWorkbook(null);
     if (!uploadBatch.trim()) { setParseError('Enter the batch name first.'); return; }
 
-    let csvText = '';
     if (file.name.endsWith('.csv')) {
-      csvText = await file.text();
+      const csvText = await file.text();
+      await processCSV(csvText);
     } else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
       try {
         const XLSX = await import('xlsx');
         const buf  = await file.arrayBuffer();
         const wb   = XLSX.read(buf, { type: 'array' });
-        // Use first sheet
-        const ws   = wb.Sheets[wb.SheetNames[0]];
-        csvText    = XLSX.utils.sheet_to_csv(ws);
+        if (wb.SheetNames.length === 1) {
+          // Only one tab — parse directly
+          const csvText = XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]);
+          await processCSV(csvText);
+        } else {
+          // Multiple tabs — let user pick
+          setXlsxWorkbook(wb);
+          setXlsxSheetNames(wb.SheetNames);
+          setXlsxSelectedSheet(wb.SheetNames[0]);
+        }
       } catch {
-        setParseError('Could not read Excel file. Try downloading as CSV instead.'); return;
+        setParseError('Could not read Excel file. Try downloading as CSV instead.');
       }
     } else {
-      setParseError('Only .csv or .xlsx files are supported.'); return;
+      setParseError('Only .csv or .xlsx files are supported.');
     }
+  }
 
+  async function handleSheetTabConfirm() {
+    if (!xlsxWorkbook || !xlsxSelectedSheet) return;
+    const XLSX = await import('xlsx');
+    const ws   = xlsxWorkbook.Sheets[xlsxSelectedSheet];
+    if (!ws) { setParseError('Could not read that sheet tab.'); return; }
+    const csvText = XLSX.utils.sheet_to_csv(ws);
+    setXlsxSheetNames([]); setXlsxWorkbook(null);
+    await processCSV(csvText);
+  }
+
+  async function processCSV(csvText: string) {
     const rows    = parseCSV(csvText);
     const scripts = parseSheetRows(rows);
     const nums    = Object.keys(scripts).map(Number).sort((a, b) => a - b);
     if (nums.length === 0) {
       setParseError('No scripts found. Make sure row 1 has "Script 1", "Script 2", etc.'); return;
     }
-
     const prefix = [uploadClient, `Batch${uploadBatch.trim()}`].filter(Boolean).join('_');
     const { data: portalScripts } = await supabase.from('scripts').select('id, title')
       .in('title', nums.map(n => `${prefix}_Script${n}`));
     const titleMap: Record<string, { id: string }> = {};
     for (const s of (portalScripts || [])) titleMap[s.title] = s;
-
     setUploadRows(nums.map(n => {
       const t = `${prefix}_Script${n}`;
       const m = titleMap[t];
@@ -364,6 +385,7 @@ export default function WritingPage() {
   function closeUploadModal() {
     setShowUpload(false); setUploadClient(''); setUploadBatch('');
     setUploadStep(1); setUploadRows([]); setParseError(''); setUploadFileName('');
+    setXlsxSheetNames([]); setXlsxSelectedSheet(''); setXlsxWorkbook(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
@@ -717,6 +739,25 @@ export default function WritingPage() {
                       onChange={handleFileSelect} />
                   </label>
                 </div>
+
+                {/* XLSX tab picker — shown when xlsx has multiple tabs */}
+                {xlsxSheetNames.length > 0 && (
+                  <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-4">
+                    <p className="text-xs font-bold text-indigo-700 uppercase tracking-wider mb-2">Multiple tabs found — pick the batch tab</p>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {xlsxSheetNames.map(name => (
+                        <button key={name} type="button" onClick={() => setXlsxSelectedSheet(name)}
+                          className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition ${xlsxSelectedSheet === name ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300 hover:border-indigo-400'}`}>
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                    <button onClick={handleSheetTabConfirm} disabled={!xlsxSelectedSheet}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-semibold py-2 rounded-lg text-sm transition">
+                      Use "{xlsxSelectedSheet}" tab →
+                    </button>
+                  </div>
+                )}
 
                 {parseError && (
                   <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-xs font-medium px-3 py-2.5 rounded-lg">
