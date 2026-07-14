@@ -83,7 +83,7 @@ export default function WritingPage() {
   // Create form
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving]     = useState(false);
-  const [formData, setFormData] = useState({ batchNo: '', scriptNos: [''], pod: '', client: '' });
+  const [formData, setFormData] = useState({ batchNo: '', count: '1', pod: '', client: '' });
   const [newClient, setNewClient] = useState('');
 
   // "Mark Written" modal with script details
@@ -145,16 +145,16 @@ export default function WritingPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    const validNos = formData.scriptNos.map(n => n.trim()).filter(Boolean);
-    if (!formData.batchNo.trim() || validNos.length === 0 || !formData.pod) return;
+    const n = parseInt(formData.count, 10);
+    if (!formData.batchNo.trim() || !formData.pod || !n || n < 1) return;
     setSaving(true);
-    const rows = validNos.map(no => ({
-      title: [formData.client, `Batch${formData.batchNo.trim()}`, `Script${no}`].filter(Boolean).join('_'),
+    const rows = Array.from({ length: n }, (_, i) => ({
+      title: [formData.client, `Batch${formData.batchNo.trim()}`, `Script${i + 1}`].filter(Boolean).join('_'),
       pod: formData.pod, client: formData.client || null,
       status: 'pending' as const, writing_status: 'writing',
     }));
     await supabase.from('scripts').insert(rows);
-    setFormData({ batchNo: '', scriptNos: [''], pod: '', client: '' });
+    setFormData({ batchNo: '', count: '1', pod: '', client: '' });
     setShowForm(false); setSaving(false);
     await loadData();
   }
@@ -302,41 +302,25 @@ export default function WritingPage() {
                 </div>
               </div>
             </div>
-            <div className="mb-4">
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Script Numbers * <span className="font-normal text-gray-400">— press Enter to add next</span></label>
-              <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                {formData.scriptNos.map((no, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
-                    <span className="text-xs text-gray-400 w-5 text-right">{idx + 1}.</span>
-                    <div className="flex-1 relative">
-                      <input type="text" value={no} placeholder="e.g. S16"
-                        autoFocus={idx === formData.scriptNos.length - 1 && idx > 0}
-                        onChange={e => { const u = [...formData.scriptNos]; u[idx] = e.target.value; setFormData({ ...formData, scriptNos: u }); }}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') { e.preventDefault(); setFormData({ ...formData, scriptNos: [...formData.scriptNos, ''] }); }
-                          if (e.key === 'Backspace' && !no && formData.scriptNos.length > 1) { setFormData({ ...formData, scriptNos: formData.scriptNos.filter((_, i) => i !== idx) }); }
-                        }}
-                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500" />
-                      {formData.batchNo && no.trim() && (
-                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">
-                          → {[formData.client, `Batch${formData.batchNo}`, `Script${no.trim()}`].filter(Boolean).join('_')}
-                        </span>
-                      )}
-                    </div>
-                    {formData.scriptNos.length > 1 && (
-                      <button type="button" onClick={() => setFormData({ ...formData, scriptNos: formData.scriptNos.filter((_, i) => i !== idx) })} className="text-gray-300 hover:text-red-400"><X className="w-3.5 h-3.5" /></button>
-                    )}
-                  </div>
-                ))}
+            <div className="mb-4 flex items-end gap-4">
+              <div className="w-44">
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Number of Tickets *</label>
+                <input type="number" min="1" max="200" required autoFocus value={formData.count}
+                  onChange={e => setFormData({ ...formData, count: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500" placeholder="e.g. 20" />
               </div>
-              <button type="button" onClick={() => setFormData({ ...formData, scriptNos: [...formData.scriptNos, ''] })} className="mt-1.5 text-xs text-blue-600 font-medium hover:underline flex items-center gap-1">
-                <Plus className="w-3 h-3" />Add another
-              </button>
+              {formData.batchNo && parseInt(formData.count) > 0 && formData.pod && (
+                <p className="text-xs text-gray-400 pb-2.5">
+                  Will create <span className="font-semibold text-gray-700">{parseInt(formData.count) || 0}</span> tickets:&nbsp;
+                  {[formData.client, `Batch${formData.batchNo}`, 'Script1'].filter(Boolean).join('_')}
+                  {parseInt(formData.count) > 1 && <> … Script{parseInt(formData.count)}</>}
+                </p>
+              )}
             </div>
             <div className="flex gap-2">
-              <button type="submit" disabled={saving || !formData.batchNo.trim() || !formData.pod || !formData.scriptNos.filter(n => n.trim()).length}
+              <button type="submit" disabled={saving || !formData.batchNo.trim() || !formData.pod || !parseInt(formData.count)}
                 className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-sm font-medium py-2 px-5 rounded-lg transition">
-                {saving ? 'Creating…' : `Create ${formData.scriptNos.filter(n => n.trim()).length} Ticket${formData.scriptNos.filter(n => n.trim()).length !== 1 ? 's' : ''}`}
+                {saving ? 'Creating…' : `Create ${parseInt(formData.count) || 0} Ticket${parseInt(formData.count) !== 1 ? 's' : ''}`}
               </button>
               <button type="button" onClick={() => setShowForm(false)} className="text-gray-500 text-sm font-medium py-2 px-4 rounded-lg hover:bg-gray-100 transition">Cancel</button>
             </div>
