@@ -32,7 +32,7 @@ interface Client  { id: string; name: string; }
 interface Pod     { id: string; name: string; color: string; }
 
 interface UploadRow {
-  scriptNum: number;
+  scriptTitle: string;
   content: Record<string, string>;
   portalId: string | null;
   portalTitle: string | null;
@@ -77,6 +77,9 @@ const SHEET_FIELD_MAP: Record<string, string> = {
   'trust signal':    'trustSignal',
   'call to action':  'cta',
   'cta':             'cta',
+  'prod. type':      'productionType',
+  'prod type':       'productionType',
+  'production type': 'productionType',
 };
 
 // ── CSV parser (handles quoted multi-line cells) ───────────────────────────
@@ -105,23 +108,23 @@ function parseCSV(text: string): string[][] {
   return rows;
 }
 
-function parseSheetRows(rows: string[][]): Record<number, Record<string, string>> {
+function parseSheetRows(rows: string[][]): Record<string, Record<string, string>> {
   const headerRow = rows[0] || [];
-  const colToNum: Record<number, number> = {};
+  const colToTitle: Record<number, string> = {};
   for (let col = 1; col < headerRow.length; col++) {
-    const m = String(headerRow[col] || '').trim().match(/Script\s*(\d+)/i);
-    if (m) colToNum[col] = parseInt(m[1], 10);
+    const title = String(headerRow[col] || '').trim();
+    if (title) colToTitle[col] = title;
   }
-  const scripts: Record<number, Record<string, string>> = {};
-  Object.values(colToNum).forEach(n => { scripts[n] = {}; });
+  const scripts: Record<string, Record<string, string>> = {};
+  Object.values(colToTitle).forEach(t => { scripts[t] = {}; });
   for (let r = 1; r < rows.length; r++) {
     const rowData = rows[r];
     const key = SHEET_FIELD_MAP[String(rowData[0] || '').trim().toLowerCase()];
     if (!key) continue;
     for (let col = 1; col < rowData.length; col++) {
-      const n = colToNum[col]; if (!n) continue;
+      const t = colToTitle[col]; if (!t) continue;
       const val = String(rowData[col] || '').trim();
-      if (val) scripts[n][key] = val;
+      if (val) scripts[t][key] = val;
     }
   }
   return scripts;
@@ -170,7 +173,7 @@ export default function WritingPage() {
   // Create form
   const [showForm, setShowForm]     = useState(false);
   const [saving, setSaving]         = useState(false);
-  const [formData, setFormData]     = useState({ batchNo: '', count: '1', pod: '', client: '' });
+  const [formData, setFormData]     = useState({ count: '1', pod: '', client: '' });
   const [newClient, setNewClient]   = useState('');
   const [createError, setCreateError] = useState('');
   const [nextStart, setNextStart]   = useState(1);
@@ -193,8 +196,6 @@ export default function WritingPage() {
 
   // Sheet file upload modal
   const [showUpload, setShowUpload]         = useState(false);
-  const [uploadClient, setUploadClient]     = useState('');
-  const [uploadBatch, setUploadBatch]       = useState('');
   const [uploadStep, setUploadStep]         = useState<1 | 2>(1);
   const [uploadRows, setUploadRows]         = useState<UploadRow[]>([]);
   const [parseError, setParseError]         = useState('');
@@ -247,34 +248,42 @@ export default function WritingPage() {
     setNewClient('');
   }
 
-  async function lookupNextStart() {
-    const batch = formData.batchNo.trim(); if (!batch) { setNextStart(1); return; }
-    const prefix = [formData.client, `Batch${batch}`, 'Script'].filter(Boolean).join('_');
+  async function lookupNextStart(overridePod?: string, overrideClient?: string) {
+    const pod = overridePod ?? formData.pod; if (!pod) { setNextStart(1); return; }
+    const client = (overrideClient ?? formData.client).trim();
+    const podInitial = pod.charAt(0).toUpperCase();
+    const prefix = client ? `${client}_${podInitial}` : podInitial;
+    const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const { data } = await supabase.from('scripts').select('title').like('title', `${prefix}%`);
     let max = 0;
-    for (const s of (data || [])) { const m = s.title.match(/_Script(\d+)$/); if (m) max = Math.max(max, parseInt(m[1], 10)); }
+    const re = new RegExp(`^${escaped}(\\d+)$`);
+    for (const s of (data || [])) { const m = s.title.match(re); if (m) max = Math.max(max, parseInt(m[1], 10)); }
     setNextStart(max + 1);
   }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault(); setCreateError('');
     const n = parseInt(formData.count, 10);
-    if (!formData.batchNo.trim() || !formData.pod || !n || n < 1) return;
+    if (!formData.pod || !n || n < 1) return;
     setSaving(true);
-    const prefix = [formData.client, `Batch${formData.batchNo.trim()}`].filter(Boolean).join('_');
-    const { data: existing } = await supabase.from('scripts').select('title').like('title', `${prefix}_Script%`);
+    const client = formData.client.trim();
+    const podInitial = formData.pod.charAt(0).toUpperCase();
+    const prefix = client ? `${client}_${podInitial}` : podInitial;
+    const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const { data: existing } = await supabase.from('scripts').select('title').like('title', `${prefix}%`);
+    const re = new RegExp(`^${escaped}(\\d+)$`);
     let max = 0;
-    for (const s of (existing || [])) { const m = s.title.match(/_Script(\d+)$/); if (m) max = Math.max(max, parseInt(m[1], 10)); }
+    for (const s of (existing || [])) { const m = s.title.match(re); if (m) max = Math.max(max, parseInt(m[1], 10)); }
     const startFrom = max + 1;
     const rows = Array.from({ length: n }, (_, i) => ({
-      title: `${prefix}_Script${startFrom + i}`,
-      pod: formData.pod, client: formData.client || null,
+      title: `${prefix}${startFrom + i}`,
+      pod: formData.pod, client: client || null,
       status: 'pending' as const, writing_status: 'writing',
     }));
     const { data: dupes } = await supabase.from('scripts').select('title').in('title', rows.map(r => r.title));
     if (dupes && dupes.length > 0) { setCreateError(`Already exist: ${dupes.map(d => d.title).join(', ')}`); setSaving(false); return; }
     await supabase.from('scripts').insert(rows);
-    setFormData({ batchNo: '', count: '1', pod: '', client: '' }); setNextStart(1);
+    setFormData({ count: '1', pod: '', client: '' }); setNextStart(1);
     setShowForm(false); setSaving(false); await loadData();
   }
 
@@ -351,7 +360,6 @@ export default function WritingPage() {
     const file = e.target.files?.[0]; if (!file) return;
     setParseError(''); setUploadFileName(file.name);
     setXlsxSheetNames([]); setXlsxSelectedSheet(''); setXlsxWorkbook(null);
-    if (!uploadBatch.trim()) { setParseError('Enter the batch name first.'); return; }
 
     if (file.name.endsWith('.csv')) {
       const csvText = await file.text();
@@ -392,19 +400,16 @@ export default function WritingPage() {
   async function processCSV(csvText: string) {
     const rows    = parseCSV(csvText);
     const scripts = parseSheetRows(rows);
-    const nums    = Object.keys(scripts).map(Number).sort((a, b) => a - b);
-    if (nums.length === 0) {
-      setParseError('No scripts found. Make sure row 1 has "Script 1", "Script 2", etc.'); return;
+    const titles  = Object.keys(scripts);
+    if (titles.length === 0) {
+      setParseError('No scripts found. Make sure row 1 has script titles like "Bachatt_N38".'); return;
     }
-    const prefix = [uploadClient, `Batch${uploadBatch.trim()}`].filter(Boolean).join('_');
-    const { data: portalScripts } = await supabase.from('scripts').select('id, title')
-      .in('title', nums.map(n => `${prefix}_Script${n}`));
+    const { data: portalScripts } = await supabase.from('scripts').select('id, title').in('title', titles);
     const titleMap: Record<string, { id: string }> = {};
     for (const s of (portalScripts || [])) titleMap[s.title] = s;
-    setUploadRows(nums.map(n => {
-      const t = `${prefix}_Script${n}`;
+    setUploadRows(titles.map(t => {
       const m = titleMap[t];
-      return { scriptNum: n, content: scripts[n], portalId: m?.id || null, portalTitle: m ? t : null };
+      return { scriptTitle: t, content: scripts[t], portalId: m?.id || null, portalTitle: m ? t : null };
     }));
     setUploadStep(2);
   }
@@ -419,7 +424,7 @@ export default function WritingPage() {
   }
 
   function closeUploadModal() {
-    setShowUpload(false); setUploadClient(''); setUploadBatch('');
+    setShowUpload(false);
     setUploadStep(1); setUploadRows([]); setParseError(''); setUploadFileName('');
     setXlsxSheetNames([]); setXlsxSelectedSheet(''); setXlsxWorkbook(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -503,16 +508,10 @@ export default function WritingPage() {
           <h2 className="font-bold text-gray-900 mb-4">Create Tickets</h2>
           <form onSubmit={handleCreate}>
             <div className="flex items-end gap-3 mb-4">
-              <div className="w-36">
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Batch No. *</label>
-                <input type="text" required autoFocus value={formData.batchNo}
-                  onChange={e => setFormData({ ...formData, batchNo: e.target.value })}
-                  onBlur={lookupNextStart}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500" placeholder="e.g. B19" />
-              </div>
               <div className="w-44">
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Pod *</label>
-                <select required value={formData.pod} onChange={e => setFormData({ ...formData, pod: e.target.value })}
+                <select required autoFocus value={formData.pod}
+                  onChange={e => { const p = e.target.value; setFormData(f => ({ ...f, pod: p })); lookupNextStart(p, formData.client); }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500">
                   <option value="">Select pod...</option>
                   {pods.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
@@ -521,7 +520,9 @@ export default function WritingPage() {
               <div className="flex-1">
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Client</label>
                 <div className="flex gap-2">
-                  <select value={formData.client} onChange={e => setFormData({ ...formData, client: e.target.value })} onBlur={lookupNextStart}
+                  <select value={formData.client}
+                    onChange={e => setFormData(f => ({ ...f, client: e.target.value }))}
+                    onBlur={() => lookupNextStart()}
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500">
                     <option value="">No client</option>
                     {clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
@@ -537,19 +538,24 @@ export default function WritingPage() {
               <div className="w-44">
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Number of Tickets *</label>
                 <input type="number" min="1" max="200" required value={formData.count}
-                  onChange={e => { setCreateError(''); setFormData({ ...formData, count: e.target.value }); }}
+                  onChange={e => { setCreateError(''); setFormData(f => ({ ...f, count: e.target.value })); }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500" placeholder="e.g. 20" />
               </div>
-              {formData.batchNo && parseInt(formData.count) > 0 && formData.pod && (
-                <p className="text-xs text-gray-400 pb-2.5">
-                  Will create <span className="font-semibold text-gray-700">{parseInt(formData.count) || 0}</span> tickets:&nbsp;
-                  <span className="font-mono text-gray-600">
-                    {[formData.client, `Batch${formData.batchNo}`, `Script${nextStart}`].filter(Boolean).join('_')}
-                    {parseInt(formData.count) > 1 && <> → Script{nextStart + parseInt(formData.count) - 1}</>}
-                  </span>
-                  {nextStart > 1 && <span className="ml-2 text-blue-500 font-medium">(continuing from #{nextStart})</span>}
-                </p>
-              )}
+              {formData.pod && parseInt(formData.count) > 0 && (() => {
+                const client = formData.client.trim();
+                const initial = formData.pod.charAt(0).toUpperCase();
+                const prefix = client ? `${client}_${initial}` : initial;
+                return (
+                  <p className="text-xs text-gray-400 pb-2.5">
+                    Will create <span className="font-semibold text-gray-700">{parseInt(formData.count) || 0}</span> tickets:&nbsp;
+                    <span className="font-mono text-gray-600">
+                      {prefix}{nextStart}
+                      {parseInt(formData.count) > 1 && <> → {prefix}{nextStart + parseInt(formData.count) - 1}</>}
+                    </span>
+                    {nextStart > 1 && <span className="ml-2 text-blue-500 font-medium">(continuing from #{nextStart})</span>}
+                  </p>
+                );
+              })()}
             </div>
             {createError && (
               <div className="mb-3 flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-xs font-medium px-3 py-2.5 rounded-lg">
@@ -557,7 +563,7 @@ export default function WritingPage() {
               </div>
             )}
             <div className="flex gap-2">
-              <button type="submit" disabled={saving || !formData.batchNo.trim() || !formData.pod || !parseInt(formData.count)}
+              <button type="submit" disabled={saving || !formData.pod || !parseInt(formData.count)}
                 className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-sm font-medium py-2 px-5 rounded-lg transition">
                 {saving ? 'Creating…' : `Create ${parseInt(formData.count) || 0} Ticket${parseInt(formData.count) !== 1 ? 's' : ''}`}
               </button>
@@ -759,45 +765,25 @@ export default function WritingPage() {
               <button onClick={closeUploadModal} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
 
-            {/* Step 1 — file + batch */}
+            {/* Step 1 — file upload */}
             {uploadStep === 1 && (
               <div className="px-6 py-5 space-y-5">
                 <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-700 leading-relaxed">
                   <strong>How to download from Google Sheets:</strong><br />
-                  Open the sheet → go to the specific batch tab → <strong>File → Download → CSV (.csv)</strong><br />
-                  Then upload that file below.
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Client (in portal)</label>
-                    <select value={uploadClient} onChange={e => setUploadClient(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-green-500">
-                      <option value="">No client</option>
-                      {clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Batch No. (as in portal) *</label>
-                    <input type="text" value={uploadBatch} onChange={e => { setUploadBatch(e.target.value); setParseError(''); }}
-                      placeholder="e.g. B1"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-green-500" />
-                    <p className="text-xs text-gray-400 mt-1">Tickets must be named <span className="font-mono text-gray-600">{[uploadClient || 'Client', `Batch${uploadBatch || 'X'}`, 'Script1'].filter(Boolean).join('_')}</span></p>
-                  </div>
+                  Open the sheet → pick the batch tab → <strong>File → Download → CSV (.csv)</strong><br />
+                  The portal matches scripts by their title (e.g. <span className="font-mono">Bachatt_N38</span>) from row 1 of your sheet.
                 </div>
 
                 {/* File drop zone */}
                 <div>
-                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Sheet File *</label>
-                  <label className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl px-6 py-8 cursor-pointer transition
-                    ${uploadBatch.trim() ? 'border-green-300 hover:border-green-400 hover:bg-green-50' : 'border-gray-200 opacity-50 cursor-not-allowed'}`}>
+                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Sheet File (CSV or XLSX)</label>
+                  <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-green-300 hover:border-green-400 hover:bg-green-50 rounded-xl px-6 py-8 cursor-pointer transition">
                     <Upload className="w-8 h-8 text-green-500" />
                     <span className="text-sm font-semibold text-gray-700">
                       {uploadFileName ? uploadFileName : 'Click to select CSV or XLSX file'}
                     </span>
-                    <span className="text-xs text-gray-400">Google Sheets → File → Download → CSV</span>
+                    <span className="text-xs text-gray-400">Row 1 must have script titles like Bachatt_N38, Bachatt_N39…</span>
                     <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" className="hidden"
-                      disabled={!uploadBatch.trim()}
                       onChange={handleFileSelect} />
                   </label>
                 </div>
@@ -874,8 +860,8 @@ export default function WritingPage() {
                             {uploadRows.map(r => {
                               const hasContent = Object.keys(r.content).length > 0;
                               return (
-                                <tr key={r.scriptNum} className={!hasContent ? 'opacity-35' : ''}>
-                                  <td className="px-3 py-2 font-mono text-xs text-gray-700">Script {r.scriptNum}</td>
+                                <tr key={r.scriptTitle} className={!hasContent ? 'opacity-35' : ''}>
+                                  <td className="px-3 py-2 font-mono text-xs text-gray-700">{r.scriptTitle}</td>
                                   <td className="px-3 py-2 text-xs">
                                     {r.portalTitle ? <span className="text-gray-700">{r.portalTitle}</span> : <span className="text-red-400 italic">not found</span>}
                                   </td>
