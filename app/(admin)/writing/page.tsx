@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import {
   Plus, Check, RefreshCw, PenLine, X, ArrowRight,
   Video, UserCheck, AlertTriangle, Clock, ChevronDown, ChevronUp,
-  Upload, Link as LinkIcon,
+  Upload,
 } from 'lucide-react';
 
 interface Script {
@@ -127,13 +127,6 @@ function parseSheetRows(rows: string[][]): Record<number, Record<string, string>
   return scripts;
 }
 
-function parseSheetUrl(url: string): { sheetId: string; gid: string } | null {
-  const idMatch  = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
-  const gidMatch = url.match(/[#&?]gid=(\d+)/);
-  if (!idMatch) return null;
-  return { sheetId: idMatch[1], gid: gidMatch ? gidMatch[1] : '' };
-}
-
 // ── Helpers ────────────────────────────────────────────────────────────────
 const POD_COLOR_MAP: Record<string, string> = {
   blue: 'bg-blue-100 text-blue-700', purple: 'bg-purple-100 text-purple-700',
@@ -193,16 +186,16 @@ export default function WritingPage() {
   const [assignDeadline, setAssignDeadline] = useState('');
   const [assignSaving, setAssignSaving]     = useState(false);
 
-  // Google Sheet upload modal
+  // Sheet file upload modal
   const [showUpload, setShowUpload]     = useState(false);
-  const [uploadUrl, setUploadUrl]       = useState('');
   const [uploadClient, setUploadClient] = useState('');
   const [uploadBatch, setUploadBatch]   = useState('');
   const [uploadStep, setUploadStep]     = useState<1 | 2>(1);
   const [uploadRows, setUploadRows]     = useState<UploadRow[]>([]);
-  const [fetchError, setFetchError]     = useState('');
-  const [fetching, setFetching]         = useState(false);
+  const [parseError, setParseError]     = useState('');
   const [uploading, setUploading]       = useState(false);
+  const [uploadFileName, setUploadFileName] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Expanded rows & action spinner
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -314,38 +307,49 @@ export default function WritingPage() {
     setAssignScript(null); setAssignEditor(''); setAssignDeadline(''); setAssignSaving(false); await loadData();
   }
 
-  // ── Google Sheet upload ───────────────────────────────────────────────────
-  async function fetchSheet() {
-    setFetchError(''); setFetching(true);
-    const parsed = parseSheetUrl(uploadUrl.trim());
-    if (!parsed) { setFetchError('Not a valid Google Sheets URL.'); setFetching(false); return; }
-    if (!uploadBatch.trim()) { setFetchError('Enter the batch name.'); setFetching(false); return; }
+  // ── Sheet file upload ─────────────────────────────────────────────────────
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]; if (!file) return;
+    setParseError(''); setUploadFileName(file.name);
+    if (!uploadBatch.trim()) { setParseError('Enter the batch name first.'); return; }
 
-    const params = new URLSearchParams({ sheetId: parsed.sheetId, ...(parsed.gid ? { gid: parsed.gid } : {}) });
-    const res = await fetch(`/api/fetch-sheet?${params}`);
-    if (!res.ok) { const j = await res.json().catch(() => ({})); setFetchError(j.error || 'Failed to fetch sheet.'); setFetching(false); return; }
+    let csvText = '';
+    if (file.name.endsWith('.csv')) {
+      csvText = await file.text();
+    } else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+      try {
+        const XLSX = await import('xlsx');
+        const buf  = await file.arrayBuffer();
+        const wb   = XLSX.read(buf, { type: 'array' });
+        // Use first sheet
+        const ws   = wb.Sheets[wb.SheetNames[0]];
+        csvText    = XLSX.utils.sheet_to_csv(ws);
+      } catch {
+        setParseError('Could not read Excel file. Try downloading as CSV instead.'); return;
+      }
+    } else {
+      setParseError('Only .csv or .xlsx files are supported.'); return;
+    }
 
-    const csv = await res.text();
-    const rows = parseCSV(csv);
+    const rows    = parseCSV(csvText);
     const scripts = parseSheetRows(rows);
-    const nums = Object.keys(scripts).map(Number).sort((a, b) => a - b);
-    if (nums.length === 0) { setFetchError('No scripts found in this sheet. Check that row 1 has "Script 1", "Script 2", etc.'); setFetching(false); return; }
+    const nums    = Object.keys(scripts).map(Number).sort((a, b) => a - b);
+    if (nums.length === 0) {
+      setParseError('No scripts found. Make sure row 1 has "Script 1", "Script 2", etc.'); return;
+    }
 
     const prefix = [uploadClient, `Batch${uploadBatch.trim()}`].filter(Boolean).join('_');
-    const expectedTitles = nums.map(n => `${prefix}_Script${n}`);
-    const { data: portalScripts } = await supabase.from('scripts').select('id, title').in('title', expectedTitles);
-    const titleMap: Record<string, { id: string; title: string }> = {};
+    const { data: portalScripts } = await supabase.from('scripts').select('id, title')
+      .in('title', nums.map(n => `${prefix}_Script${n}`));
+    const titleMap: Record<string, { id: string }> = {};
     for (const s of (portalScripts || [])) titleMap[s.title] = s;
 
-    const uploadRowData: UploadRow[] = nums.map(n => {
-      const expectedTitle = `${prefix}_Script${n}`;
-      const match = titleMap[expectedTitle];
-      return { scriptNum: n, content: scripts[n], portalId: match?.id || null, portalTitle: match?.title || null };
-    });
-
-    setUploadRows(uploadRowData);
+    setUploadRows(nums.map(n => {
+      const t = `${prefix}_Script${n}`;
+      const m = titleMap[t];
+      return { scriptNum: n, content: scripts[n], portalId: m?.id || null, portalTitle: m ? t : null };
+    }));
     setUploadStep(2);
-    setFetching(false);
   }
 
   async function confirmUpload() {
@@ -354,14 +358,13 @@ export default function WritingPage() {
     await Promise.all(toUpdate.map(r =>
       supabase.from('scripts').update({ script_content: r.content, writing_status: 'written' }).eq('id', r.portalId!)
     ));
-    setUploading(false);
-    closeUploadModal();
-    await loadData();
+    setUploading(false); closeUploadModal(); await loadData();
   }
 
   function closeUploadModal() {
-    setShowUpload(false); setUploadUrl(''); setUploadClient(''); setUploadBatch('');
-    setUploadStep(1); setUploadRows([]); setFetchError('');
+    setShowUpload(false); setUploadClient(''); setUploadBatch('');
+    setUploadStep(1); setUploadRows([]); setParseError(''); setUploadFileName('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
   // ── Derived state ─────────────────────────────────────────────────────────
@@ -656,36 +659,31 @@ export default function WritingPage() {
         </div>
       )}
 
-      {/* ── Google Sheet Upload Modal ──────────────────────────────────────── */}
+      {/* ── Sheet File Upload Modal ────────────────────────────────────────── */}
       {showUpload && (
         <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-8">
-            {/* Header */}
             <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100">
               <div>
                 <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2">
-                  <LinkIcon className="w-5 h-5 text-green-600" />Upload from Google Sheet
+                  <Upload className="w-5 h-5 text-green-600" />Upload Script Sheet
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  {uploadStep === 1 ? 'Paste the sheet URL and tell us which batch to update' : 'Review what will be marked as Written'}
+                  {uploadStep === 1 ? 'Download the sheet as CSV or XLSX, then upload here' : 'Review what will be marked as Written'}
                 </p>
               </div>
               <button onClick={closeUploadModal} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
 
-            {/* Step 1 — URL + batch */}
+            {/* Step 1 — file + batch */}
             {uploadStep === 1 && (
-              <div className="px-6 py-5 space-y-4">
-                <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-700">
-                  <strong>Before uploading:</strong> Make sure the Google Sheet is set to <em>"Anyone with the link can view"</em> (Share → Change to anyone with the link).
+              <div className="px-6 py-5 space-y-5">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-700 leading-relaxed">
+                  <strong>How to download from Google Sheets:</strong><br />
+                  Open the sheet → go to the specific batch tab → <strong>File → Download → CSV (.csv)</strong><br />
+                  Then upload that file below.
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Google Sheets URL *</label>
-                  <input type="url" value={uploadUrl} onChange={e => { setUploadUrl(e.target.value); setFetchError(''); }}
-                    placeholder="https://docs.google.com/spreadsheets/d/…"
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-green-500" />
-                  <p className="text-xs text-gray-400 mt-1">Navigate to the specific tab in Google Sheets first, then copy the URL — it will contain the correct tab ID.</p>
-                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Client (in portal)</label>
@@ -697,24 +695,39 @@ export default function WritingPage() {
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Batch No. (as in portal) *</label>
-                    <input type="text" value={uploadBatch} onChange={e => { setUploadBatch(e.target.value); setFetchError(''); }}
+                    <input type="text" value={uploadBatch} onChange={e => { setUploadBatch(e.target.value); setParseError(''); }}
                       placeholder="e.g. B1"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-green-500" />
-                    <p className="text-xs text-gray-400 mt-1">Portal tickets must be named <span className="font-mono">{uploadClient || 'Client'}_Batch{uploadBatch || 'X'}_Script1</span></p>
+                    <p className="text-xs text-gray-400 mt-1">Tickets must be named <span className="font-mono text-gray-600">{[uploadClient || 'Client', `Batch${uploadBatch || 'X'}`, 'Script1'].filter(Boolean).join('_')}</span></p>
                   </div>
                 </div>
-                {fetchError && (
+
+                {/* File drop zone */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Sheet File *</label>
+                  <label className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl px-6 py-8 cursor-pointer transition
+                    ${uploadBatch.trim() ? 'border-green-300 hover:border-green-400 hover:bg-green-50' : 'border-gray-200 opacity-50 cursor-not-allowed'}`}>
+                    <Upload className="w-8 h-8 text-green-500" />
+                    <span className="text-sm font-semibold text-gray-700">
+                      {uploadFileName ? uploadFileName : 'Click to select CSV or XLSX file'}
+                    </span>
+                    <span className="text-xs text-gray-400">Google Sheets → File → Download → CSV</span>
+                    <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" className="hidden"
+                      disabled={!uploadBatch.trim()}
+                      onChange={handleFileSelect} />
+                  </label>
+                </div>
+
+                {parseError && (
                   <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-xs font-medium px-3 py-2.5 rounded-lg">
-                    <span className="mt-0.5 flex-shrink-0">⚠️</span><span>{fetchError}</span>
+                    <span className="mt-0.5 flex-shrink-0">⚠️</span><span>{parseError}</span>
                   </div>
                 )}
-                <div className="flex gap-3 pt-1">
-                  <button onClick={fetchSheet} disabled={fetching || !uploadUrl.trim() || !uploadBatch.trim()}
-                    className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white font-semibold py-2.5 rounded-xl transition">
-                    {fetching ? 'Fetching sheet…' : 'Fetch & Preview'}
-                  </button>
-                  <button onClick={closeUploadModal} className="border border-gray-200 text-gray-600 font-semibold py-2.5 px-5 rounded-xl hover:bg-gray-50 transition text-sm">Cancel</button>
-                </div>
+
+                <button onClick={closeUploadModal}
+                  className="w-full border border-gray-200 text-gray-600 font-semibold py-2.5 rounded-xl hover:bg-gray-50 transition text-sm">
+                  Cancel
+                </button>
               </div>
             )}
 
@@ -728,49 +741,46 @@ export default function WritingPage() {
                   const emptyInSheet = uploadRows.filter(r => Object.keys(r.content).length === 0);
                   return (
                     <>
-                      <div className="flex gap-4 mb-4">
+                      {uploadFileName && <p className="text-xs text-gray-400 mb-4 font-mono">📄 {uploadFileName}</p>}
+                      <div className="flex gap-3 mb-4">
                         <div className="flex-1 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-center">
                           <p className="text-2xl font-bold text-green-700">{matched.length}</p>
                           <p className="text-xs text-green-600 font-semibold mt-0.5">Will be marked Written</p>
                         </div>
                         <div className="flex-1 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-center">
                           <p className="text-2xl font-bold text-amber-600">{notMatched.length}</p>
-                          <p className="text-xs text-amber-600 font-semibold mt-0.5">In sheet but not in portal</p>
+                          <p className="text-xs text-amber-600 font-semibold mt-0.5">Not in portal yet</p>
                         </div>
                         <div className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-center">
-                          <p className="text-2xl font-bold text-gray-500">{emptyInSheet.length}</p>
-                          <p className="text-xs text-gray-500 font-semibold mt-0.5">Empty (skipped)</p>
+                          <p className="text-2xl font-bold text-gray-400">{emptyInSheet.length}</p>
+                          <p className="text-xs text-gray-500 font-semibold mt-0.5">Empty (not written yet)</p>
                         </div>
                       </div>
 
-                      <div className="border border-gray-100 rounded-xl overflow-hidden max-h-72 overflow-y-auto">
+                      <div className="border border-gray-100 rounded-xl overflow-hidden max-h-64 overflow-y-auto">
                         <table className="w-full text-sm">
                           <thead className="bg-gray-50 sticky top-0">
                             <tr>
-                              <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Sheet</th>
+                              <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Script</th>
                               <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Portal Ticket</th>
-                              <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Fields</th>
-                              <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Action</th>
+                              <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Fields found</th>
+                              <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Result</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-50">
                             {uploadRows.map(r => {
                               const hasContent = Object.keys(r.content).length > 0;
                               return (
-                                <tr key={r.scriptNum} className={!hasContent ? 'opacity-40' : ''}>
+                                <tr key={r.scriptNum} className={!hasContent ? 'opacity-35' : ''}>
                                   <td className="px-3 py-2 font-mono text-xs text-gray-700">Script {r.scriptNum}</td>
                                   <td className="px-3 py-2 text-xs">
-                                    {r.portalTitle
-                                      ? <span className="text-gray-700 font-medium">{r.portalTitle}</span>
-                                      : <span className="text-red-400 italic">not found in portal</span>}
+                                    {r.portalTitle ? <span className="text-gray-700">{r.portalTitle}</span> : <span className="text-red-400 italic">not found</span>}
                                   </td>
-                                  <td className="px-3 py-2 text-xs text-gray-500">{Object.keys(r.content).length} fields</td>
-                                  <td className="px-3 py-2">
-                                    {!hasContent
-                                      ? <span className="text-xs text-gray-400">skip (empty)</span>
-                                      : r.portalId
-                                        ? <span className="text-xs font-semibold text-green-600">✓ Mark Written</span>
-                                        : <span className="text-xs font-semibold text-amber-600">⚠ No ticket</span>}
+                                  <td className="px-3 py-2 text-xs text-gray-500">{Object.keys(r.content).length}</td>
+                                  <td className="px-3 py-2 text-xs font-semibold">
+                                    {!hasContent ? <span className="text-gray-400">skip</span>
+                                      : r.portalId ? <span className="text-green-600">✓ Mark Written</span>
+                                      : <span className="text-amber-600">⚠ No ticket</span>}
                                   </td>
                                 </tr>
                               );
@@ -781,7 +791,7 @@ export default function WritingPage() {
 
                       {notMatched.length > 0 && (
                         <p className="text-xs text-amber-600 mt-3">
-                          {notMatched.length} script(s) in the sheet don't have a matching portal ticket. Create the tickets first, then re-upload.
+                          {notMatched.length} script(s) have content but no portal ticket — create the tickets first, then re-upload.
                         </p>
                       )}
                     </>
@@ -794,7 +804,8 @@ export default function WritingPage() {
                     className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white font-semibold py-2.5 rounded-xl transition">
                     {uploading ? 'Updating…' : `Mark ${uploadRows.filter(r => Object.keys(r.content).length > 0 && r.portalId).length} Scripts as Written`}
                   </button>
-                  <button onClick={() => setUploadStep(1)} className="border border-gray-200 text-gray-600 font-semibold py-2.5 px-5 rounded-xl hover:bg-gray-50 transition text-sm">← Back</button>
+                  <button onClick={() => { setUploadStep(1); setUploadFileName(''); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                    className="border border-gray-200 text-gray-600 font-semibold py-2.5 px-5 rounded-xl hover:bg-gray-50 transition text-sm">← Back</button>
                 </div>
               </div>
             )}
