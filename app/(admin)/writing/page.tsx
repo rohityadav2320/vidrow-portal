@@ -180,6 +180,11 @@ export default function WritingPage() {
   const [scriptFields, setScriptFields]   = useState<Record<string, string>>({});
   const [writtenSaving, setWrittenSaving] = useState(false);
 
+  // Send to Production modal
+  const [productionModal, setProductionModal] = useState<Script | null>(null);
+  const [productionDetails, setProductionDetails] = useState({ type: '', name: '', notes: '' });
+  const [productionSaving, setProductionSaving] = useState(false);
+
   // Assign to Editor modal
   const [assignScript, setAssignScript]     = useState<Script | null>(null);
   const [assignEditor, setAssignEditor]     = useState('');
@@ -291,6 +296,37 @@ export default function WritingPage() {
       ...(Object.keys(content).length > 0 ? { script_content: content } : {}),
     }).eq('id', writtenModal.id);
     setWrittenModal(null); setScriptFields({}); setWrittenSaving(false); await loadData();
+  }
+
+  // ── Send to Production modal ──────────────────────────────────────────────
+  function openProductionModal(script: Script) {
+    const existing = script.script_content || {};
+    setProductionDetails({
+      type:  existing.productionType  || '',
+      name:  existing.productionName  || '',
+      notes: existing.productionNotes || '',
+    });
+    setProductionModal(script);
+  }
+
+  async function saveProduction(skip = false) {
+    if (!productionModal) return;
+    setProductionSaving(true);
+    const existing = productionModal.script_content || {};
+    const updated = skip ? existing : {
+      ...existing,
+      ...(productionDetails.type  ? { productionType:  productionDetails.type }  : {}),
+      ...(productionDetails.name  ? { productionName:  productionDetails.name }  : {}),
+      ...(productionDetails.notes ? { productionNotes: productionDetails.notes } : {}),
+    };
+    await supabase.from('scripts').update({
+      writing_status: 'production',
+      script_content: Object.keys(updated).length > 0 ? updated : null,
+    }).eq('id', productionModal.id);
+    setProductionModal(null);
+    setProductionDetails({ type: '', name: '', notes: '' });
+    setProductionSaving(false);
+    await loadData();
   }
 
   // ── Advance / assign ──────────────────────────────────────────────────────
@@ -641,9 +677,9 @@ export default function WritingPage() {
                             </button>
                           )}
                           {status === 'written' && (
-                            <button onClick={() => advance(script, 'production')} disabled={isActing}
-                              className="flex items-center gap-1 text-xs font-semibold text-white bg-purple-500 hover:bg-purple-600 px-3 py-1.5 rounded-lg transition disabled:opacity-40">
-                              {isActing ? '…' : <><Video className="w-3.5 h-3.5" />Send to Production</>}
+                            <button onClick={() => openProductionModal(script)}
+                              className="flex items-center gap-1 text-xs font-semibold text-white bg-purple-500 hover:bg-purple-600 px-3 py-1.5 rounded-lg transition">
+                              <Video className="w-3.5 h-3.5" />Send to Production
                             </button>
                           )}
                           {status === 'production' && (
@@ -662,6 +698,32 @@ export default function WritingPage() {
                     {isExpanded && hasContent && (
                       <tr className="bg-blue-50/30 border-b border-blue-100">
                         <td colSpan={6} className="px-6 py-5">
+                          {/* Production details banner */}
+                          {(script.script_content!.productionType || script.script_content!.productionName || script.script_content!.productionNotes) && (
+                            <div className="flex items-start gap-4 bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 mb-5">
+                              <Video className="w-4 h-4 text-purple-500 flex-shrink-0 mt-0.5" />
+                              <div className="flex gap-6 flex-wrap">
+                                {script.script_content!.productionType && (
+                                  <div>
+                                    <p className="text-xs font-bold text-purple-400 uppercase tracking-wider">Type</p>
+                                    <p className="text-sm font-semibold text-purple-800">{script.script_content!.productionType}</p>
+                                  </div>
+                                )}
+                                {script.script_content!.productionName && (
+                                  <div>
+                                    <p className="text-xs font-bold text-purple-400 uppercase tracking-wider">Creator / House</p>
+                                    <p className="text-sm font-semibold text-purple-800">{script.script_content!.productionName}</p>
+                                  </div>
+                                )}
+                                {script.script_content!.productionNotes && (
+                                  <div>
+                                    <p className="text-xs font-bold text-purple-400 uppercase tracking-wider">Notes</p>
+                                    <p className="text-sm text-purple-700">{script.script_content!.productionNotes}</p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
                           <div className="grid grid-cols-2 gap-x-10 gap-y-4">
                             {SCRIPT_FIELDS.filter(f => script.script_content![f.key]).map(f => (
                               <div key={f.key} className={f.span === 2 ? 'col-span-2' : ''}>
@@ -850,6 +912,66 @@ export default function WritingPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Send to Production Modal ──────────────────────────────────────── */}
+      {productionModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100">
+              <div>
+                <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2">
+                  <Video className="w-5 h-5 text-purple-500" />Send to Production
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5 font-mono">{productionModal.title}</p>
+              </div>
+              <button onClick={() => setProductionModal(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">Production Type</label>
+                <div className="flex flex-wrap gap-2">
+                  {['Creator', 'Production House', 'AI Video', 'Internal'].map(t => (
+                    <button key={t} type="button" onClick={() => setProductionDetails(p => ({ ...p, type: p.type === t ? '' : t }))}
+                      className={`text-sm font-semibold px-4 py-2 rounded-full border-2 transition ${productionDetails.type === t ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-200 text-gray-600 hover:border-purple-300'}`}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">
+                  {productionDetails.type === 'Creator' ? 'Creator Name' : productionDetails.type === 'Production House' ? 'Production House Name' : productionDetails.type === 'AI Video' ? 'AI Tool / Platform' : 'Name / Details'}
+                </label>
+                <input type="text" value={productionDetails.name}
+                  onChange={e => setProductionDetails(p => ({ ...p, name: e.target.value }))}
+                  placeholder={productionDetails.type === 'Creator' ? 'e.g. Raghav Sharma' : productionDetails.type === 'Production House' ? 'e.g. Studio XYZ' : productionDetails.type === 'AI Video' ? 'e.g. HeyGen, Synthesia' : 'Enter name…'}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-purple-500" />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Notes (optional)</label>
+                <textarea value={productionDetails.notes}
+                  onChange={e => setProductionDetails(p => ({ ...p, notes: e.target.value }))}
+                  placeholder="Any instructions, links, or additional info…"
+                  rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-purple-500 resize-none" />
+              </div>
+            </div>
+
+            <div className="px-6 pb-6 flex gap-3">
+              <button onClick={() => saveProduction(false)} disabled={productionSaving}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white font-semibold py-2.5 rounded-xl transition">
+                {productionSaving ? 'Saving…' : '🎬 Send to Production'}
+              </button>
+              <button onClick={() => saveProduction(true)} disabled={productionSaving}
+                className="border border-gray-200 text-gray-600 font-semibold py-2.5 px-4 rounded-xl hover:bg-gray-50 transition text-sm">
+                Skip details
+              </button>
+            </div>
           </div>
         </div>
       )}
